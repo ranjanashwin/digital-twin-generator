@@ -218,76 +218,65 @@ def upload_selfies():
             cleanup_job_files(job_id)
             resource_manager.cleanup_job(job_id, force=True)
             return jsonify({'error': 'No valid image files uploaded'}), 400
+        
+        # Validate images with comprehensive checks
+        logger.info(f"Validating {len(image_paths)} images for job {job_id}")
+        validation_results = image_validator.validate_image_set(image_paths)
+        
+        # Check if validation passed
+        if not validation_results['summary']['meets_requirements']:
+            # Clean up and return detailed error
+            cleanup_job_files(job_id)
+            resource_manager.cleanup_job(job_id, force=True)
             
-            # Validate images with comprehensive checks
-            logger.info(f"Validating {len(image_paths)} images for job {job_id}")
-            validation_results = image_validator.validate_image_set(image_paths)
-            
-            # Check if validation passed
-            if not validation_results['summary']['meets_requirements']:
-                # Clean up and return detailed error
-                cleanup_job_files(job_id)
-                resource_manager.cleanup_job(job_id, force=True)
-                
-                error_details = {
-                    'error': 'Image validation failed',
-                    'validation_report': image_validator.get_validation_report(validation_results),
-                    'summary': validation_results['summary'],
-                    'details': {
-                        'total_images': validation_results['summary']['total_images'],
-                        'valid_images': validation_results['summary']['valid_images'],
-                        'invalid_images': validation_results['summary']['invalid_images'],
-                        'required': validation_results['summary']['min_required']
-                    }
+            error_details = {
+                'error': 'Image validation failed',
+                'validation_report': image_validator.get_validation_report(validation_results),
+                'summary': validation_results['summary'],
+                'details': {
+                    'total_images': validation_results['summary']['total_images'],
+                    'valid_images': validation_results['summary']['valid_images'],
+                    'invalid_images': validation_results['summary']['invalid_images'],
+                    'required': validation_results['summary']['min_required']
                 }
-                
-                return jsonify(error_details), 400
+            }
             
-            # Get generation parameters
-            prompt_style = request.form.get('prompt_style', 'portrait')
-            quality_mode = request.form.get('quality_mode', 'high_fidelity')
-            
-            # Initialize job with validation results
-            with job_lock:
-                jobs[job_id] = {
-                    'id': job_id,
-                    'status': 'validated',
-                    'progress': 20,
-                    'message': f'Validation successful: {validation_results["summary"]["valid_images"]} valid images found',
-                    'created_at': time.time(),
-                    'updated_at': time.time(),
-                    'image_count': validation_results['summary']['valid_images'],
-                    'prompt_style': prompt_style,
-                    'quality_mode': quality_mode,
-                    'validation_results': validation_results['summary']
-                }
-            
-            # Start generation in background
-            thread = threading.Thread(
-                target=generate_digital_twin_worker,
-                args=[job_id, str(extract_dir), prompt_style, quality_mode]
-            )
-            thread.daemon = True
-            thread.start()
-            
-            return jsonify({
-                'job_id': job_id,
-                'message': f'Upload successful. {validation_results["summary"]["valid_images"]} valid images found. Generation started.',
+            return jsonify(error_details), 400
+        
+        # Get generation parameters
+        prompt_style = request.form.get('prompt_style', 'portrait')
+        quality_mode = request.form.get('quality_mode', 'high_fidelity')
+        
+        # Initialize job with validation results
+        with job_lock:
+            jobs[job_id] = {
+                'id': job_id,
                 'status': 'validated',
+                'progress': 20,
+                'message': f'Validation successful: {validation_results["summary"]["valid_images"]} valid images found',
+                'created_at': time.time(),
+                'updated_at': time.time(),
                 'image_count': validation_results['summary']['valid_images'],
-                'validation_summary': validation_results['summary']
-            })
-            
-        except zipfile.BadZipFile:
-            cleanup_job_files(job_id)
-            resource_manager.cleanup_job(job_id, force=True)
-            return jsonify({'error': 'Invalid ZIP file'}), 400
-        except Exception as e:
-            logger.error(f"Failed to process ZIP file: {e}")
-            logger.error(traceback.format_exc())
-            cleanup_job_files(job_id)
-            resource_manager.cleanup_job(job_id, force=True)
-            return jsonify({'error': f'Failed to process ZIP file: {str(e)}'}), 500
+                'prompt_style': prompt_style,
+                'quality_mode': quality_mode,
+                'validation_results': validation_results['summary']
+            }
+        
+        # Start generation in background
+        thread = threading.Thread(
+            target=generate_digital_twin_worker,
+            args=[job_id, str(extract_dir), prompt_style, quality_mode]
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'job_id': job_id,
+            'message': f'Upload successful. {validation_results["summary"]["valid_images"]} valid images found. Generation started.',
+            'status': 'validated',
+            'image_count': validation_results['summary']['valid_images'],
+            'validation_summary': validation_results['summary']
+        })
     
     except Exception as e:
         logger.error(f"Upload failed: {e}")

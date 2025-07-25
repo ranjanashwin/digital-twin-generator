@@ -186,10 +186,22 @@ class FashionWorkflow {
         if (files.length === 0) return;
         
         const file = files[0];
+        
+        // Check file size (5GB limit)
+        const maxSize = 5 * 1024 * 1024 * 1024; // 5GB in bytes
+        if (file.size > maxSize) {
+            this.showStatus('File size too large. Maximum size is 5GB.', 'error');
+            return;
+        }
+        
+        // Check file type
         if (!file.name.toLowerCase().endsWith('.zip')) {
             this.showStatus('Please upload a ZIP file containing selfies', 'error');
             return;
         }
+        
+        // Show upload progress
+        this.showUploadProgress('Uploading selfies...');
         
         this.displaySelfiesFileInfo(file);
         this.validateForm();
@@ -198,14 +210,32 @@ class FashionWorkflow {
     handleClothingDrop(files) {
         if (files.length === 0) return;
         
+        // Check total file size
+        const maxSize = 5 * 1024 * 1024 * 1024; // 5GB in bytes
+        const totalSize = Array.from(files).reduce((sum, file) => sum + file.size, 0);
+        
+        if (totalSize > maxSize) {
+            this.showStatus('Total file size too large. Maximum size is 5GB.', 'error');
+            return;
+        }
+        
         // Clear existing items
         this.clothingItems = [];
         this.clothingItemsGrid.innerHTML = '';
         
         // Process each file
+        let validFiles = 0;
         Array.from(files).forEach((file, index) => {
-            if (!file.type.startsWith('image/')) {
-                this.showStatus(`File ${file.name} is not an image`, 'error');
+            // Check individual file size
+            if (file.size > maxSize) {
+                this.showStatus(`File ${file.name} is too large. Maximum size is 5GB.`, 'error');
+                return;
+            }
+            
+            // Check file type
+            const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+            if (!allowedTypes.includes(file.type)) {
+                this.showStatus(`File ${file.name} is not a supported image type.`, 'error');
                 return;
             }
             
@@ -218,23 +248,38 @@ class FashionWorkflow {
             
             this.clothingItems.push(clothingItem);
             this.displayClothingItem(clothingItem, index);
+            validFiles++;
         });
         
-        this.clothingPreviewContainer.style.display = 'block';
-        this.validateForm();
-        this.checkClothingCompatibility();
+        if (validFiles > 0) {
+            this.clothingPreviewContainer.style.display = 'block';
+            this.validateForm();
+            this.checkClothingCompatibility();
+            this.showStatus(`Successfully added ${validFiles} clothing item(s)`, 'success');
+        }
     }
     
     handleReferencePoseDrop(files) {
         if (files.length === 0) return;
         
         const file = files[0];
-        if (!file.type.startsWith('image/')) {
-            this.showStatus('Please upload an image file for reference pose', 'error');
+        
+        // Check file size
+        const maxSize = 100 * 1024 * 1024; // 100MB limit for reference pose
+        if (file.size > maxSize) {
+            this.showStatus('Reference pose file too large. Maximum size is 100MB.', 'error');
+            return;
+        }
+        
+        // Check file type
+        const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            this.showStatus('Please upload an image file for reference pose (PNG, JPEG, WebP)', 'error');
             return;
         }
         
         this.displayReferencePoseFileInfo(file);
+        this.showStatus('Reference pose uploaded successfully', 'success');
     }
     
     displaySelfiesFileInfo(file) {
@@ -495,10 +540,21 @@ class FashionWorkflow {
             this.startGeneration('Generating Digital Twin...');
             
             const formData = new FormData();
-            formData.append('selfies_zip', this.selfiesFileInput.files[0]);
+            
+            // Add file with proper error handling
+            const file = this.selfiesFileInput.files[0];
+            if (!file) {
+                this.handleGenerationFailed('No file selected');
+                return;
+            }
+            
+            formData.append('selfies_zip', file);
             formData.append('avatar_style', this.avatarStyle.value);
             formData.append('custom_prompt', this.customPrompt.value);
             formData.append('quality_mode', this.qualityModeGroup.querySelector('input:checked').value);
+            
+            // Show upload progress
+            this.showUploadProgress('Uploading selfies...');
             
             const response = await fetch('/upload-selfies', {
                 method: 'POST',
@@ -509,14 +565,15 @@ class FashionWorkflow {
                 const result = await response.json();
                 this.sessionId = result.session_id;
                 this.avatarJobId = result.job_id;
+                this.showStatus('Upload successful! Starting avatar generation...', 'success');
                 this.startStatusPolling();
             } else {
                 const error = await response.json();
-                this.handleGenerationFailed(error.error);
+                this.handleGenerationFailed(error.error || 'Upload failed');
             }
             
         } catch (error) {
-            this.handleGenerationFailed(error.message);
+            this.handleGenerationFailed(`Upload failed: ${error.message}`);
         }
     }
     
@@ -531,7 +588,12 @@ class FashionWorkflow {
             formData.append('scene_prompt', this.scenePrompt.value);
             formData.append('quality_mode', this.fashionQualityModeGroup.querySelector('input:checked').value);
             
-            // Add clothing items
+            // Add clothing items with proper error handling
+            if (this.clothingItems.length === 0) {
+                this.handleGenerationFailed('No clothing items selected');
+                return;
+            }
+            
             this.clothingItems.forEach((item, index) => {
                 formData.append(`clothing_files`, item.file);
                 formData.append(`clothing_type_${index}`, item.type);
@@ -547,6 +609,9 @@ class FashionWorkflow {
                 formData.append('pose_preset', this.posePreset.value);
             }
             
+            // Show upload progress
+            this.showUploadProgress('Uploading clothing and scene...');
+            
             const response = await fetch('/upload-clothing-scene', {
                 method: 'POST',
                 body: formData
@@ -555,14 +620,15 @@ class FashionWorkflow {
             if (response.ok) {
                 const result = await response.json();
                 this.fashionJobId = result.job_id;
+                this.showStatus('Upload successful! Starting fashion photo generation...', 'success');
                 this.startStatusPolling();
             } else {
                 const error = await response.json();
-                this.handleGenerationFailed(error.error);
+                this.handleGenerationFailed(error.error || 'Upload failed');
             }
             
         } catch (error) {
-            this.handleGenerationFailed(error.message);
+            this.handleGenerationFailed(`Upload failed: ${error.message}`);
         }
     }
     
@@ -736,6 +802,11 @@ class FashionWorkflow {
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    showUploadProgress(message) {
+        this.showStatus(message, 'info');
+        // You can add a progress bar here if needed
     }
 }
 

@@ -38,7 +38,27 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, 
             static_folder='web/static',
             template_folder='web/templates')
-app.config['MAX_CONTENT_LENGTH'] = WEB_CONFIG["max_file_size"]
+# Flask configuration for large file uploads
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024 * 1024  # 5GB max file size
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['ALLOWED_EXTENSIONS'] = {
+    'zip': 'application/zip',
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'webp': 'image/webp',
+    'gif': 'image/gif',
+    'bmp': 'image/bmp',
+    'tiff': 'image/tiff',
+    'tga': 'image/x-tga'
+}
+
+# Create upload directories
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs('selfies', exist_ok=True)
+os.makedirs('output', exist_ok=True)
+os.makedirs('models', exist_ok=True)
+
 CORS(app)
 
 # Global variables for job tracking
@@ -132,10 +152,63 @@ FASHION_QUALITY_MODES = {
     }
 }
 
-def allowed_file(filename, allowed_extensions: set):
+def allowed_file(filename, allowed_extensions=None):
     """Check if file extension is allowed"""
+    if allowed_extensions is None:
+        allowed_extensions = app.config['ALLOWED_EXTENSIONS']
+    
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in allowed_extensions
+
+def secure_filename_with_timestamp(filename):
+    """Create a secure filename with timestamp"""
+    import time
+    import uuid
+    
+    # Get file extension
+    if '.' in filename:
+        name, ext = filename.rsplit('.', 1)
+        ext = f'.{ext.lower()}'
+    else:
+        name = filename
+        ext = ''
+    
+    # Create unique filename
+    timestamp = int(time.time())
+    unique_id = str(uuid.uuid4())[:8]
+    safe_name = f"{timestamp}_{unique_id}{ext}"
+    
+    return safe_name
+
+def save_uploaded_file(file, directory='uploads'):
+    """Save uploaded file with proper error handling"""
+    try:
+        if file and file.filename:
+            # Validate file type
+            if not allowed_file(file.filename):
+                raise ValueError(f"File type not allowed: {file.filename}")
+            
+            # Create secure filename
+            filename = secure_filename_with_timestamp(file.filename)
+            filepath = os.path.join(directory, filename)
+            
+            # Ensure directory exists
+            os.makedirs(directory, exist_ok=True)
+            
+            # Save file with chunked writing for large files
+            file.save(filepath)
+            
+            # Verify file was saved
+            if not os.path.exists(filepath):
+                raise ValueError("File was not saved properly")
+            
+            return filepath
+        else:
+            raise ValueError("No file provided")
+            
+    except Exception as e:
+        logger.error(f"Error saving uploaded file: {e}")
+        raise
 
 def create_session_id():
     """Create unique session ID with timestamp"""
@@ -530,110 +603,123 @@ def test():
 
 @app.route('/upload-selfies', methods=['POST'])
 def upload_selfies():
-    """Step 1: Handle selfie upload and avatar generation"""
+    """Step 1: Handle selfies upload and avatar generation"""
     try:
-        # Check if files were uploaded
-        if 'zip_file' not in request.files:
-            return jsonify({'error': 'No ZIP file uploaded'}), 400
+        logger.info("Starting selfies upload process...")
         
-        zip_file = request.files['zip_file']
-        prompt = request.form.get('prompt', '').strip()
+        # Check if file was uploaded
+        if 'selfies_zip' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['selfies_zip']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file type
+        if not allowed_file(file.filename, {'zip'}):
+            return jsonify({'error': 'Please upload a ZIP file containing selfies'}), 400
+        
+        # Get form data
         avatar_style = request.form.get('avatar_style', 'fashion_portrait')
+        custom_prompt = request.form.get('custom_prompt', '').strip()
         quality_mode = request.form.get('quality_mode', 'high_fidelity')
         
-        # Validate ZIP file
-        if zip_file.filename == '':
-            return jsonify({'error': 'No ZIP file selected'}), 400
-        
-        if not zip_file.filename.lower().endswith('.zip'):
-            return jsonify({'error': 'Please upload a ZIP file'}), 400
-        
-        # Create session ID and directories
+        # Create session
         session_id = create_session_id()
-        job_id = create_job_id()
         session_dir = OUTPUT_DIR / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save ZIP file temporarily
-        zip_path = session_dir / "uploaded.zip"
-        zip_file.save(str(zip_path))
+        # Save uploaded file
+        try:
+            uploaded_file_path = save_uploaded_file(file, str(session_dir))
+            logger.info(f"File saved to: {uploaded_file_path}")
+        except Exception as e:
+            logger.error(f"File upload failed: {e}")
+            return jsonify({'error': f'File upload failed: {str(e)}'}), 500
         
         # Validate ZIP contents
-        zip_validation = validate_zip_file(str(zip_path))
-        if not zip_validation['valid']:
-            # Clean up
-            if session_dir.exists():
-                shutil.rmtree(session_dir)
-            return jsonify({'error': zip_validation['error']}), 400
+        try:
+            import zipfile
+            with zipfile.ZipFile(uploaded_file_path, 'r') as zip_ref:
+                file_list = zip_ref.namelist()
+                image_files = [f for f in file_list if allowed_file(f, {'png', 'jpg', 'jpeg', 'webp'})]
+                
+                if len(image_files) < 15:
+                    return jsonify({'error': f'ZIP file must contain at least 15 selfie images. Found: {len(image_files)}'}), 400
+                
+                logger.info(f"ZIP contains {len(image_files)} valid image files")
+                
+        except zipfile.BadZipFile:
+            return jsonify({'error': 'Invalid ZIP file format'}), 400
+        except Exception as e:
+            logger.error(f"ZIP validation failed: {e}")
+            return jsonify({'error': f'ZIP validation failed: {str(e)}'}), 500
         
-        # Extract ZIP file
-        image_paths = extract_zip_to_session(str(zip_path), session_dir)
+        # Create job for avatar generation
+        job_id = f"avatar_{session_id}_{int(time.time())}"
         
-        # Save prompt text
-        save_prompt_text(prompt, session_dir)
-        
-        # Register job with resource manager
-        resource_manager.register_job(job_id, str(session_dir), str(session_dir))
-        
-        # Initialize job
-        with job_lock:
-            jobs[job_id] = {
-                'id': job_id,
+        job_data = {
+            'type': 'avatar',
+            'status': 'pending',
+            'progress': 0,
+            'message': 'Initializing avatar generation...',
+            'data': {
                 'session_id': session_id,
-                'status': 'validated',
-                'progress': 20,
-                'message': f'Validation successful: {zip_validation["count"]} images found',
-                'created_at': time.time(),
-                'updated_at': time.time(),
-                'image_count': zip_validation['count'],
-                'prompt': prompt,
+                'uploaded_file_path': uploaded_file_path,
                 'avatar_style': avatar_style,
+                'custom_prompt': custom_prompt,
                 'quality_mode': quality_mode,
-                'validation_results': zip_validation,
-                'workflow_step': 'step1'
-            }
+                'session_dir': str(session_dir)
+            },
+            'created_at': time.time()
+        }
         
-        # Start generation in background
+        jobs[job_id] = job_data
+        
+        # Start avatar generation in background
         thread = threading.Thread(
             target=generate_avatar_worker,
-            args=[session_id, job_id, session_dir, prompt, avatar_style, quality_mode]
+            args=[session_id, job_id, session_dir, custom_prompt, avatar_style, quality_mode]
         )
         thread.daemon = True
         thread.start()
         
+        logger.info(f"Started avatar generation job: {job_id}")
+        
         return jsonify({
-            'job_id': job_id,
+            'success': True,
             'session_id': session_id,
-            'message': f'Upload successful. {zip_validation["count"]} images found. Avatar generation started.',
-            'status': 'validated',
-            'image_count': zip_validation['count'],
-            'validation_summary': zip_validation,
-            'next_step': 'step2'
+            'job_id': job_id,
+            'message': 'Selfies uploaded successfully. Avatar generation started.'
         })
         
     except Exception as e:
-        logger.error(f"Selfie upload failed: {e}")
-        logger.error(traceback.format_exc())
-        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+        logger.error(f"Error in upload_selfies: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/upload-clothing-scene', methods=['POST'])
 def upload_clothing_scene():
     """Upload clothing and scene description for fashion photo generation"""
     try:
+        logger.info("Starting clothing and scene upload process...")
+        
         # Get session ID
         session_id = request.form.get('session_id')
-        if not session_id or session_id not in sessions:
-            return jsonify({'error': 'Invalid session ID'}), 400
-        
-        session = sessions[session_id]
+        if not session_id:
+            return jsonify({'error': 'Session ID required'}), 400
         
         # Check if avatar is ready
-        if not session.get('avatar_path'):
-            return jsonify({'error': 'Avatar not ready. Please generate avatar first.'}), 400
+        session_dir = OUTPUT_DIR / session_id
+        if not session_dir.exists():
+            return jsonify({'error': 'Session not found'}), 400
+        
+        avatar_dir = session_dir / "avatar_output"
+        if not avatar_dir.exists() or not list(avatar_dir.glob("*.png")):
+            return jsonify({'error': 'Avatar generation not complete. Please complete step 1 first.'}), 400
         
         # Get clothing files (multiple files supported)
         clothing_files = request.files.getlist('clothing_files')
-        if not clothing_files:
+        if not clothing_files or all(f.filename == '' for f in clothing_files):
             return jsonify({'error': 'No clothing files provided'}), 400
         
         # Get reference pose file (optional)
@@ -641,7 +727,7 @@ def upload_clothing_scene():
         pose_preset = request.form.get('pose_preset')  # Optional preset pose
         
         # Get scene prompt
-        scene_prompt = request.form.get('scene_prompt', '')
+        scene_prompt = request.form.get('scene_prompt', '').strip()
         if not scene_prompt:
             return jsonify({'error': 'Scene prompt is required'}), 400
         
@@ -655,23 +741,30 @@ def upload_clothing_scene():
         for i, file in enumerate(clothing_files):
             if file and file.filename:
                 # Validate file type
-                if not allowed_file(file.filename, {'png', 'jpg', 'jpeg', 'webp'}):
-                    return jsonify({'error': f'Invalid file type for clothing {i+1}'}), 400
+                if not allowed_file(file.filename, {'png', 'jpg', 'jpeg', 'webp', 'gif'}):
+                    return jsonify({'error': f'Invalid file type for clothing {i+1}: {file.filename}'}), 400
                 
-                # Save clothing file
-                filename = secure_filename(f"clothing_{i+1}_{int(time.time())}_{file.filename}")
-                clothing_path = os.path.join(session['output_dir'], filename)
-                file.save(clothing_path)
-                clothing_paths.append(clothing_path)
-                
-                # Create clothing item data
-                clothing_item = {
-                    'image_path': clothing_path,
-                    'type': request.form.get(f'clothing_type_{i}', 'top'),
-                    'layer': int(request.form.get(f'clothing_layer_{i}', 2)),
-                    'name': request.form.get(f'clothing_name_{i}', f'Clothing {i+1}')
-                }
-                clothing_items.append(clothing_item)
+                try:
+                    # Save clothing file
+                    filename = secure_filename_with_timestamp(file.filename)
+                    clothing_path = os.path.join(str(session_dir), filename)
+                    file.save(clothing_path)
+                    clothing_paths.append(clothing_path)
+                    
+                    # Create clothing item data
+                    clothing_item = {
+                        'image_path': clothing_path,
+                        'type': request.form.get(f'clothing_type_{i}', 'top'),
+                        'layer': int(request.form.get(f'clothing_layer_{i}', 2)),
+                        'name': request.form.get(f'clothing_name_{i}', f'Clothing {i+1}')
+                    }
+                    clothing_items.append(clothing_item)
+                    
+                    logger.info(f"Saved clothing file {i+1}: {clothing_path}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to save clothing file {i+1}: {e}")
+                    return jsonify({'error': f'Failed to save clothing file {i+1}: {str(e)}'}), 500
         
         # Save reference pose file if provided
         reference_pose_path = None
@@ -679,31 +772,41 @@ def upload_clothing_scene():
             if not allowed_file(reference_pose_file.filename, {'png', 'jpg', 'jpeg', 'webp'}):
                 return jsonify({'error': 'Invalid file type for reference pose'}), 400
             
-            filename = secure_filename(f"reference_pose_{int(time.time())}_{reference_pose_file.filename}")
-            reference_pose_path = os.path.join(session['output_dir'], filename)
-            reference_pose_file.save(reference_pose_path)
+            try:
+                filename = secure_filename_with_timestamp(reference_pose_file.filename)
+                reference_pose_path = os.path.join(str(session_dir), filename)
+                reference_pose_file.save(reference_pose_path)
+                logger.info(f"Saved reference pose file: {reference_pose_path}")
+            except Exception as e:
+                logger.error(f"Failed to save reference pose file: {e}")
+                return jsonify({'error': f'Failed to save reference pose file: {str(e)}'}), 500
         
         # Validate clothing compatibility
-        viton_processor = VitonHDProcessor()
-        compatibility_result = viton_processor.validate_clothing_compatibility(clothing_items)
-        
-        if not compatibility_result['compatible']:
-            conflicts = compatibility_result.get('conflicts', [])
-            layer_conflicts = compatibility_result.get('layer_conflicts', [])
+        try:
+            viton_processor = VitonHDProcessor()
+            compatibility_result = viton_processor.validate_clothing_compatibility(clothing_items)
             
-            error_messages = []
-            for conflict in conflicts:
-                error_messages.append(f"{conflict['item1']} and {conflict['item2']}: {conflict['reason']}")
-            for conflict in layer_conflicts:
-                error_messages.append(f"Layer conflict: {conflict['reason']}")
+            if not compatibility_result['compatible']:
+                conflicts = compatibility_result.get('conflicts', [])
+                layer_conflicts = compatibility_result.get('layer_conflicts', [])
+                
+                error_messages = []
+                for conflict in conflicts:
+                    error_messages.append(f"{conflict['item1']} and {conflict['item2']}: {conflict['reason']}")
+                for conflict in layer_conflicts:
+                    error_messages.append(f"Layer conflict: {conflict['reason']}")
+                
+                return jsonify({
+                    'error': 'Clothing compatibility issues',
+                    'details': error_messages
+                }), 400
             
-            return jsonify({
-                'error': 'Clothing compatibility issues',
-                'details': error_messages
-            }), 400
-        
-        # Get clothing suggestions
-        suggestions = viton_processor.get_clothing_suggestions(clothing_items)
+            # Get clothing suggestions
+            suggestions = viton_processor.get_clothing_suggestions(clothing_items)
+            
+        except Exception as e:
+            logger.error(f"Clothing compatibility check failed: {e}")
+            return jsonify({'error': f'Clothing compatibility check failed: {str(e)}'}), 500
         
         # Create job for fashion photo generation
         job_id = f"fashion_{session_id}_{int(time.time())}"
@@ -714,14 +817,15 @@ def upload_clothing_scene():
             'progress': 0,
             'message': 'Initializing fashion photo generation...',
             'data': {
-                'avatar_path': session['avatar_path'],
+                'session_id': session_id,
                 'clothing_items': clothing_items,
                 'scene_prompt': scene_prompt,
                 'quality_mode': quality_mode,
                 'reference_pose_path': reference_pose_path,
                 'pose_preset': pose_preset,
                 'compatibility_result': compatibility_result,
-                'suggestions': suggestions
+                'suggestions': suggestions,
+                'session_dir': str(session_dir)
             },
             'created_at': time.time()
         }

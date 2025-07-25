@@ -307,7 +307,7 @@ class DigitalTwinGenerator:
                 enhanced_image = self.enhance_face(image)
                 
                 # Save image
-                output_file = Path(output_path) / f"digital_twin_{i+1:03d}.png"
+                output_file = Path(output_path) / f"avatar_{i+1:03d}.png"
                 enhanced_image.save(output_file, quality=PROCESSING_CONFIG["quality"])
                 
                 generated_images.append(str(output_file))

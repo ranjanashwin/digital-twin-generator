@@ -14,6 +14,7 @@ from insightface.app import FaceAnalysis
 import insightface
 from diffusers import IPAdapterModel, IPAdapterPlusModel
 from diffusers.utils import load_image
+from diffusers.loaders import load_ipadapter_from_pretrained
 import os
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,8 @@ class IPAdapterManager:
     def load_ipadapter_model(self, model_path: str = "h94/IP-Adapter"):
         """Load IPAdapter model for FaceID"""
         try:
-            # Load IPAdapter model
-            self.ip_adapter_model = IPAdapterModel.from_pretrained(
+            # Load IPAdapter model using the correct API for diffusers==0.25.0
+            self.ip_adapter_model = load_ipadapter_from_pretrained(
                 model_path,
                 subfolder="models",
                 torch_dtype=torch.float16
@@ -61,7 +62,18 @@ class IPAdapterManager:
             
         except Exception as e:
             logger.error(f"Failed to load IPAdapter model: {e}")
-            return False
+            # Fallback to direct loading if the loader fails
+            try:
+                self.ip_adapter_model = IPAdapterModel.from_pretrained(
+                    model_path,
+                    subfolder="models",
+                    torch_dtype=torch.float16
+                ).to(self.device)
+                logger.info(f"IPAdapter model loaded using fallback method")
+                return True
+            except Exception as e2:
+                logger.error(f"Fallback loading also failed: {e2}")
+                return False
     
     def extract_face_embeddings(self, image_paths: List[str]) -> Tuple[List[np.ndarray], List[Dict]]:
         """Extract face embeddings from all selfies with quality filtering"""

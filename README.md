@@ -79,8 +79,44 @@ python app.py
 
 ### Command Line
 
+#### Direct Generation
 ```bash
 python generate_twin.py --input_folder /path/to/selfies --output_folder /path/to/output
+```
+
+#### Backend Generation (for testing)
+```bash
+# Start the Flask server
+python app.py
+
+# In another terminal, trigger generation via API
+curl -X POST http://localhost:5000/upload \
+  -F "file=@selfies.zip" \
+  -F "prompt_style=portrait" \
+  -F "quality_mode=high_fidelity"
+```
+
+#### Model Download Commands
+```bash
+# Download all models (recommended)
+./download_models.sh
+
+# Or using Python directly
+python download_models.py
+
+# Test model downloader
+python test_model_downloader.py
+```
+
+#### Installation Commands
+```bash
+# Install requirements
+pip install -r requirements.txt
+
+# Create virtual environment (optional)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 ## Project Structure

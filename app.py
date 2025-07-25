@@ -163,20 +163,33 @@ def demo():
     """Serve the demo page"""
     return render_template('demo.html')
 
+@app.route('/test')
+def test():
+    """API test page"""
+    return render_template('test.html')
+
 @app.route('/upload', methods=['POST'])
 def upload_selfies():
     """Handle selfie upload with comprehensive validation"""
     try:
-        # Check if file was uploaded
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+        # Check if files were uploaded
+        if 'files' not in request.files:
+            # Fallback to single file upload for backward compatibility
+            if 'file' not in request.files:
+                return jsonify({'error': 'No files uploaded'}), 400
+            
+            files = [request.files['file']]
+        else:
+            # Handle multiple file uploads
+            files = request.files.getlist('files')
         
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+        if not files or all(f.filename == '' for f in files):
+            return jsonify({'error': 'No files selected'}), 400
         
-        if not allowed_file(file.filename):
-            return jsonify({'error': 'Invalid file type. Please upload a ZIP file.'}), 400
+        # Validate file types
+        for file in files:
+            if not allowed_file(file.filename):
+                return jsonify({'error': f'Invalid file type: {file.filename}. Please upload image files.'}), 400
         
         # Create job ID and directories
         job_id = create_job_id()
@@ -189,31 +202,22 @@ def upload_selfies():
         # Register job with resource manager
         resource_manager.register_job(job_id, str(job_dir), str(output_dir))
         
-        # Save uploaded file
-        filename = secure_filename(file.filename)
-        zip_path = job_dir / filename
-        file.save(str(zip_path))
-        
-        # Extract ZIP file
-        extract_dir = job_dir / "extracted"
+        # Save uploaded files
+        image_paths = []
+        extract_dir = job_dir / "images"
         extract_dir.mkdir(exist_ok=True)
         
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            
-            # Find all image files
-            image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
-            image_paths = []
-            
-            for file_path in extract_dir.rglob('*'):
-                if file_path.is_file() and file_path.suffix.lower() in image_extensions:
-                    image_paths.append(str(file_path))
-            
-            if not image_paths:
-                cleanup_job_files(job_id)
-                resource_manager.cleanup_job(job_id, force=True)
-                return jsonify({'error': 'No image files found in ZIP'}), 400
+        for file in files:
+            if file.filename:
+                filename = secure_filename(file.filename)
+                file_path = extract_dir / filename
+                file.save(str(file_path))
+                image_paths.append(str(file_path))
+        
+        if not image_paths:
+            cleanup_job_files(job_id)
+            resource_manager.cleanup_job(job_id, force=True)
+            return jsonify({'error': 'No valid image files uploaded'}), 400
             
             # Validate images with comprehensive checks
             logger.info(f"Validating {len(image_paths)} images for job {job_id}")
@@ -378,11 +382,116 @@ def set_quality_mode(mode):
         'selected_mode': mode
     })
 
+@app.route('/generate', methods=['POST'])
+def generate_avatar():
+    """Generate avatar using the most recent trained twin embedding"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        prompt = data.get('prompt')
+        if not prompt:
+            return jsonify({'error': 'No prompt provided'}), 400
+        
+        # Get generation parameters
+        num_images = data.get('num_images', 1)
+        quality_mode = data.get('quality_mode', 'high_fidelity')
+        seed = data.get('seed')
+        
+        # Find the most recent successful job
+        recent_jobs = [j for j in jobs.values() if j.get('status') == 'completed' and j.get('result')]
+        if not recent_jobs:
+            return jsonify({'error': 'No trained twin embedding found. Please upload selfies first.'}), 400
+        
+        # Get the most recent job
+        latest_job = max(recent_jobs, key=lambda x: x.get('created_at', 0))
+        job_id = latest_job['id']
+        
+        # Create new generation job
+        generation_job_id = create_job_id()
+        generation_output_dir = OUTPUT_DIR / generation_job_id
+        generation_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Register generation job
+        with job_lock:
+            jobs[generation_job_id] = {
+                'id': generation_job_id,
+                'status': 'generating',
+                'progress': 0,
+                'message': 'Generating avatar...',
+                'created_at': time.time(),
+                'updated_at': time.time(),
+                'prompt': prompt,
+                'num_images': num_images,
+                'quality_mode': quality_mode,
+                'base_job_id': job_id
+            }
+        
+        # Start generation in background
+        thread = threading.Thread(
+            target=generate_avatar_worker,
+            args=[generation_job_id, job_id, prompt, num_images, quality_mode, seed]
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'job_id': generation_job_id,
+            'message': 'Avatar generation started',
+            'status': 'generating'
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to start generation: {e}")
+        return jsonify({'error': f'Generation failed: {str(e)}'}), 500
+
+def generate_avatar_worker(job_id: str, base_job_id: str, prompt: str, num_images: int, quality_mode: str, seed: int = None):
+    """Worker function to generate avatar using existing twin embedding"""
+    try:
+        update_job_status(job_id, "loading_models", 10, "Loading AI models...")
+        
+        # Initialize generator
+        generator = DigitalTwinGenerator()
+        generator.load_models()
+        
+        update_job_status(job_id, "generating", 50, "Generating avatar...")
+        
+        # Get the base job's output directory
+        base_output_dir = OUTPUT_DIR / base_job_id
+        
+        # Generate images
+        output_files = generator.generate_digital_twin(
+            selfies_folder=str(base_output_dir),  # Use existing processed selfies
+            output_path=str(OUTPUT_DIR / job_id),
+            prompt_style="custom",
+            num_images=num_images,
+            seed=seed
+        )
+        
+        # Update job with results
+        result = {
+            'output_files': output_files,
+            'prompt': prompt,
+            'num_images': num_images,
+            'quality_mode': quality_mode
+        }
+        
+        update_job_status(job_id, "completed", 100, "Generation completed", result)
+        
+        # Cleanup
+        generator.cleanup()
+        
+    except Exception as e:
+        logger.error(f"Generation failed for job {job_id}: {e}")
+        update_job_status(job_id, "failed", 0, f"Generation failed: {str(e)}")
+        cleanup_job_files(job_id)
+
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
     return jsonify({
-        'status': 'healthy', 
+        'status': 'ok', 
         'timestamp': time.time(),
         'quality_mode': QUALITY_MODE,
         'active_jobs': len([j for j in jobs.values() if j['status'] in ['uploaded', 'loading_models', 'validating_selfies', 'generating']])

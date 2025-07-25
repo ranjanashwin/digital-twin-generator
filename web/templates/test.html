@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Twin Generator - API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #555;
+        }
+        input[type="file"], input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Digital Twin Generator - API Test</h1>
+        
+        <!-- Health Check -->
+        <div class="section">
+            <h3>Health Check</h3>
+            <button onclick="checkHealth()">Check Health</button>
+            <div id="healthResult" class="result"></div>
+        </div>
+        
+        <!-- Upload Selfies -->
+        <div class="section">
+            <h3>Upload Selfies</h3>
+            <input type="file" id="selfieFiles" multiple accept="image/*">
+            <button onclick="uploadSelfies()">Upload Selfies</button>
+            <div id="uploadResult" class="result"></div>
+        </div>
+        
+        <!-- Generate Avatar -->
+        <div class="section">
+            <h3>Generate Avatar</h3>
+            <textarea id="prompt" placeholder="Enter your prompt here..." rows="3">a realistic cinematic portrait of a woman in cyberpunk city background</textarea>
+            <input type="number" id="numImages" value="1" min="1" max="4" placeholder="Number of images">
+            <button onclick="generateAvatar()">Generate Avatar</button>
+            <div id="generateResult" class="result"></div>
+        </div>
+        
+        <!-- Job Status -->
+        <div class="section">
+            <h3>Check Job Status</h3>
+            <input type="text" id="jobId" placeholder="Enter job ID">
+            <button onclick="checkStatus()">Check Status</button>
+            <div id="statusResult" class="result"></div>
+        </div>
+        
+        <!-- System Status -->
+        <div class="section">
+            <h3>System Status</h3>
+            <button onclick="checkSystemStatus()">Check System Status</button>
+            <div id="systemResult" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        
+        async function makeRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                const data = await response.json();
+                return { success: response.ok, data, status: response.status };
+            } catch (error) {
+                return { success: false, data: { error: error.message }, status: 500 };
+            }
+        }
+        
+        function displayResult(elementId, result) {
+            const element = document.getElementById(elementId);
+            element.textContent = JSON.stringify(result.data, null, 2);
+            element.className = 'result ' + (result.success ? 'success' : 'error');
+        }
+        
+        async function checkHealth() {
+            const result = await makeRequest(`${API_BASE}/health`);
+            displayResult('healthResult', result);
+        }
+        
+        async function uploadSelfies() {
+            const files = document.getElementById('selfieFiles').files;
+            if (files.length === 0) {
+                displayResult('uploadResult', { success: false, data: { error: 'No files selected' } });
+                return;
+            }
+            
+            const formData = new FormData();
+            for (let file of files) {
+                formData.append('files', file);
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                displayResult('uploadResult', { success: response.ok, data, status: response.status });
+            } catch (error) {
+                displayResult('uploadResult', { success: false, data: { error: error.message } });
+            }
+        }
+        
+        async function generateAvatar() {
+            const prompt = document.getElementById('prompt').value;
+            const numImages = parseInt(document.getElementById('numImages').value);
+            
+            if (!prompt) {
+                displayResult('generateResult', { success: false, data: { error: 'Please enter a prompt' } });
+                return;
+            }
+            
+            const result = await makeRequest(`${API_BASE}/generate`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    prompt: prompt,
+                    num_images: numImages
+                })
+            });
+            displayResult('generateResult', result);
+        }
+        
+        async function checkStatus() {
+            const jobId = document.getElementById('jobId').value;
+            if (!jobId) {
+                displayResult('statusResult', { success: false, data: { error: 'Please enter a job ID' } });
+                return;
+            }
+            
+            const result = await makeRequest(`${API_BASE}/status/${jobId}`);
+            displayResult('statusResult', result);
+        }
+        
+        async function checkSystemStatus() {
+            const result = await makeRequest(`${API_BASE}/system-status`);
+            displayResult('systemResult', result);
+        }
+        
+        // Auto-check health on page load
+        window.onload = function() {
+            checkHealth();
+        };
+    </script>
+</body>
+</html> 

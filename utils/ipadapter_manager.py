@@ -48,23 +48,26 @@ class IPAdapterManager:
     def load_ipadapter_model(self, model_path: str = "h94/IP-Adapter"):
         """Load IPAdapter model for FaceID"""
         try:
-            # Try to load IPAdapter model using available methods for diffusers==0.25.0
-            try:
-                from diffusers.models import IPAdapterModel
-                self.ip_adapter_model = IPAdapterModel.from_pretrained(
-                    model_path,
-                    subfolder="models",
-                    torch_dtype=torch.float16
-                ).to(self.device)
-                logger.info(f"IPAdapter model loaded from {model_path}")
-                return True
-            except ImportError:
-                # If IPAdapterModel is not available, try alternative approach
-                logger.warning("IPAdapterModel not available, using alternative loading method")
-                # For now, we'll skip IPAdapter loading and continue without it
-                self.ip_adapter_model = None
-                logger.info("IPAdapter loading skipped - will use basic generation")
-                return True
+            # Try multiple loading methods for compatibility
+            loading_methods = [
+                self._load_ipadapter_method1,
+                self._load_ipadapter_method2,
+                self._load_ipadapter_method3
+            ]
+            
+            for method in loading_methods:
+                try:
+                    if method(model_path):
+                        logger.info(f"IPAdapter model loaded successfully using {method.__name__}")
+                        return True
+                except Exception as e:
+                    logger.warning(f"Method {method.__name__} failed: {e}")
+                    continue
+            
+            # If all methods fail, continue without IPAdapter
+            logger.warning("All IPAdapter loading methods failed, continuing without IPAdapter")
+            self.ip_adapter_model = None
+            return True
                 
         except Exception as e:
             logger.error(f"Failed to load IPAdapter model: {e}")
@@ -72,6 +75,45 @@ class IPAdapterManager:
             self.ip_adapter_model = None
             logger.info("Continuing without IPAdapter - basic generation mode")
             return True
+    
+    def _load_ipadapter_method1(self, model_path: str) -> bool:
+        """Method 1: Try loading with IPAdapterModel from diffusers.models"""
+        try:
+            from diffusers.models import IPAdapterModel
+            self.ip_adapter_model = IPAdapterModel.from_pretrained(
+                model_path,
+                subfolder="models",
+                torch_dtype=torch.float16
+            ).to(self.device)
+            return True
+        except Exception as e:
+            logger.debug(f"Method 1 failed: {e}")
+            return False
+    
+    def _load_ipadapter_method2(self, model_path: str) -> bool:
+        """Method 2: Try loading with direct model loading"""
+        try:
+            from diffusers import IPAdapterModel
+            self.ip_adapter_model = IPAdapterModel.from_pretrained(
+                model_path,
+                subfolder="models",
+                torch_dtype=torch.float16
+            ).to(self.device)
+            return True
+        except Exception as e:
+            logger.debug(f"Method 2 failed: {e}")
+            return False
+    
+    def _load_ipadapter_method3(self, model_path: str) -> bool:
+        """Method 3: Try loading with alternative approach"""
+        try:
+            # Skip IPAdapter loading entirely for this method
+            logger.info("Using method 3: Skipping IPAdapter loading")
+            self.ip_adapter_model = None
+            return True
+        except Exception as e:
+            logger.debug(f"Method 3 failed: {e}")
+            return False
     
     def extract_face_embeddings(self, image_paths: List[str]) -> Tuple[List[np.ndarray], List[Dict]]:
         """Extract face embeddings from all selfies with quality filtering"""

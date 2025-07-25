@@ -38,7 +38,7 @@ psutil>=5.9.0
 codeformer==0.0.11
 
 # ControlNet & VITON-HD Dependencies
-controlnet-aux>=0.3.0
+controlnet-aux>=0.0.10
 opencv-contrib-python>=4.8.0
 scikit-image>=0.20.0
 
@@ -46,6 +46,10 @@ scikit-image>=0.20.0
 einops>=0.6.0
 omegaconf>=2.3.0
 pytorch-lightning>=2.0.0
+
+# File Upload & Processing
+python-magic>=0.4.27
+python-multipart>=0.0.6
 
 # Development & Testing
 pytest>=7.0.0

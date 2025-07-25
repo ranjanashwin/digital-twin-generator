@@ -596,10 +596,17 @@ class FashionWorkflow {
             this.addLog('Uploading selfies...', 'info', 'processing');
             this.updateTimelineStep('upload', 'active');
             
+            // Create AbortController for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
+            
             const response = await fetch('/upload-selfies', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                signal: controller.signal
             });
+            
+            clearTimeout(timeoutId);
             
             if (response.ok) {
                 const result = await response.json();
@@ -619,8 +626,13 @@ class FashionWorkflow {
                 this.updateTimelineStep('upload', 'failed');
             }
         } catch (error) {
-            this.addLog(`Generation failed: ${error.message}`, 'error', 'errors');
-            this.showStatus('Generation failed', 'error');
+            if (error.name === 'AbortError') {
+                this.addLog('Upload timed out after 5 minutes', 'error', 'errors');
+                this.showStatus('Upload timed out. Please try with a smaller file.', 'error');
+            } else {
+                this.addLog(`Generation failed: ${error.message}`, 'error', 'errors');
+                this.showStatus('Generation failed', 'error');
+            }
             this.updateTimelineStep('upload', 'failed');
         }
     }

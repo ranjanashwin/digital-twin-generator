@@ -616,20 +616,25 @@ def test():
 
 @app.route('/upload-selfies', methods=['POST'])
 def upload_selfies():
-    """Step 1: Handle selfies upload and avatar generation"""
+    """Upload selfies ZIP file for avatar generation"""
     try:
         logger.info("Starting selfies upload process...")
         
         # Check if file was uploaded
         if 'selfies_zip' not in request.files:
+            logger.error("No file uploaded")
             return jsonify({'error': 'No file uploaded'}), 400
         
         file = request.files['selfies_zip']
         if file.filename == '':
+            logger.error("No file selected")
             return jsonify({'error': 'No file selected'}), 400
+        
+        logger.info(f"Processing file: {file.filename}")
         
         # Validate file type
         if not allowed_file(file.filename, {'zip'}):
+            logger.error(f"Invalid file type: {file.filename}")
             return jsonify({'error': 'Please upload a ZIP file containing selfies'}), 400
         
         # Get form data
@@ -637,13 +642,18 @@ def upload_selfies():
         custom_prompt = request.form.get('custom_prompt', '').strip()
         quality_mode = request.form.get('quality_mode', 'high_fidelity')
         
+        logger.info(f"Form data - style: {avatar_style}, quality: {quality_mode}")
+        
         # Create session
         session_id = create_session_id()
         session_dir = OUTPUT_DIR / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
         
+        logger.info(f"Created session directory: {session_dir}")
+        
         # Save uploaded file
         try:
+            logger.info("Saving uploaded file...")
             uploaded_file_path = save_uploaded_file(file, str(session_dir))
             logger.info(f"File saved to: {uploaded_file_path}")
         except Exception as e:
@@ -652,12 +662,16 @@ def upload_selfies():
         
         # Validate ZIP contents
         try:
+            logger.info("Validating ZIP contents...")
             import zipfile
             with zipfile.ZipFile(uploaded_file_path, 'r') as zip_ref:
                 file_list = zip_ref.namelist()
                 image_files = [f for f in file_list if allowed_file(f, {'png', 'jpg', 'jpeg', 'webp'})]
                 
+                logger.info(f"Found {len(image_files)} image files in ZIP")
+                
                 if len(image_files) < 15:
+                    logger.error(f"Insufficient images: {len(image_files)}")
                     return jsonify({'error': f'ZIP file must contain at least 15 selfie images. Found: {len(image_files)}'}), 400
                 
                 logger.info(f"ZIP contains {len(image_files)} valid image files")
@@ -676,9 +690,11 @@ def upload_selfies():
                 logger.info(f"Extracted {len(extracted_images)} image files")
                 
                 if len(extracted_images) < 15:
+                    logger.error(f"Failed to extract enough images: {len(extracted_images)}")
                     return jsonify({'error': f'Failed to extract enough images. Found: {len(extracted_images)}'}), 400
                 
         except zipfile.BadZipFile:
+            logger.error("Invalid ZIP file format")
             return jsonify({'error': 'Invalid ZIP file format'}), 400
         except Exception as e:
             logger.error(f"ZIP validation/extraction failed: {e}")
@@ -686,6 +702,8 @@ def upload_selfies():
         
         # Create job for avatar generation
         job_id = f"avatar_{session_id}_{int(time.time())}"
+        
+        logger.info(f"Creating job: {job_id}")
         
         job_data = {
             'type': 'avatar',
@@ -706,6 +724,7 @@ def upload_selfies():
         jobs[job_id] = job_data
         
         # Start avatar generation in background
+        logger.info("Starting avatar generation worker...")
         thread = threading.Thread(
             target=generate_avatar_worker,
             args=[session_id, job_id, session_dir, custom_prompt, avatar_style, quality_mode]
@@ -715,15 +734,20 @@ def upload_selfies():
         
         logger.info(f"Started avatar generation job: {job_id}")
         
-        return jsonify({
+        response_data = {
             'success': True,
             'session_id': session_id,
             'job_id': job_id,
             'message': 'Selfies uploaded successfully. Avatar generation started.'
-        })
+        }
+        
+        logger.info(f"Upload completed successfully. Returning response: {response_data}")
+        return jsonify(response_data)
         
     except Exception as e:
         logger.error(f"Error in upload_selfies: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/upload-clothing-scene', methods=['POST'])

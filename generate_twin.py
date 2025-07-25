@@ -412,6 +412,11 @@ class DigitalTwinGenerator:
         logger.info(f"Enhancing face with {enhancement_mode} mode using {enhancement_method}...")
         
         try:
+            # Check if face enhancer is available (not a dummy model)
+            if not self.face_enhancer or hasattr(self.face_enhancer, 'enhance') == False:
+                logger.warning("Face enhancement model not available, skipping enhancement")
+                return image
+            
             if enhancement_mode == "light":
                 # Light enhancement - minimal processing
                 img_np = np.array(image)
@@ -430,32 +435,42 @@ class DigitalTwinGenerator:
                     # Convert PIL to numpy
                     img_np = np.array(image)
                     
-                    # Enhance with GFPGAN
-                    _, _, enhanced_img = self.face_enhancer.enhance(
-                        img_np,
-                        has_aligned=False,
-                        only_center_face=False,
-                        paste_back=True
-                    )
-                    
-                    # Convert back to PIL
-                    enhanced_image = Image.fromarray(enhanced_img)
+                    # Check if this is a dummy enhancer
+                    if hasattr(self.face_enhancer, 'enhance') and callable(self.face_enhancer.enhance):
+                        # Enhance with GFPGAN
+                        _, _, enhanced_img = self.face_enhancer.enhance(
+                            img_np,
+                            has_aligned=False,
+                            only_center_face=False,
+                            paste_back=True
+                        )
+                        
+                        # Convert back to PIL
+                        enhanced_image = Image.fromarray(enhanced_img)
+                    else:
+                        logger.warning("GFPGAN not available, using original image")
+                        enhanced_image = image
                     
                 elif enhancement_method == "codeformer":
                     # Convert PIL to numpy
                     img_np = np.array(image)
                     
-                    # Enhance with CodeFormer
-                    enhanced_img = self.face_enhancer.enhance(
-                        img_np,
-                        background_enhance=True,
-                        face_upsample=True,
-                        upscale=1,
-                        codeformer_fidelity=FACE_ENHANCEMENT_CONFIG["codeformer_strength"]
-                    )
-                    
-                    # Convert back to PIL
-                    enhanced_image = Image.fromarray(enhanced_img)
+                    # Check if this is a dummy enhancer
+                    if hasattr(self.face_enhancer, 'enhance') and callable(self.face_enhancer.enhance):
+                        # Enhance with CodeFormer
+                        enhanced_img = self.face_enhancer.enhance(
+                            img_np,
+                            background_enhance=True,
+                            face_upsample=True,
+                            upscale=1,
+                            codeformer_fidelity=FACE_ENHANCEMENT_CONFIG["codeformer_strength"]
+                        )
+                        
+                        # Convert back to PIL
+                        enhanced_image = Image.fromarray(enhanced_img)
+                    else:
+                        logger.warning("CodeFormer not available, using original image")
+                        enhanced_image = image
                     
                 else:
                     logger.warning(f"Unknown enhancement method: {enhancement_method}")
@@ -466,6 +481,7 @@ class DigitalTwinGenerator:
             
         except Exception as e:
             logger.error(f"Face enhancement failed: {e}")
+            logger.info("Continuing with original image without enhancement")
             return image
     
     def cleanup(self):

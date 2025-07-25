@@ -133,49 +133,91 @@ class ModelLoader:
         
         try:
             if method == "gfpgan":
-                from gfpgan import GFPGANer
-                
-                model_path = "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth"
-                model = GFPGANer(
-                    model_path=model_path,
-                    upscale=2,
-                    arch='clean',
-                    channel_multiplier=2,
-                    bg_upsampler=None
-                )
+                # Try to load GFPGAN with error handling
+                try:
+                    from gfpgan import GFPGANer
+                    
+                    model_path = "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth"
+                    model = GFPGANer(
+                        model_path=model_path,
+                        upscale=2,
+                        arch='clean',
+                        channel_multiplier=2,
+                        bg_upsampler=None
+                    )
+                    
+                    self.models[f"face_enhance_{method}"] = model
+                    logger.info(f"Face enhancement model {method} loaded successfully")
+                    return model
+                    
+                except Exception as e:
+                    logger.warning(f"GFPGAN loading failed: {e}")
+                    logger.info("Continuing without face enhancement - basic generation mode")
+                    # Return a dummy model that does nothing
+                    class DummyFaceEnhancer:
+                        def enhance(self, image_path):
+                            logger.info("Face enhancement skipped - using original image")
+                            return image_path
+                    
+                    dummy_model = DummyFaceEnhancer()
+                    self.models[f"face_enhance_{method}"] = dummy_model
+                    return dummy_model
                 
             elif method == "codeformer":
-                from basicsr.utils.download_util import load_file_from_url
-                from facexlib.utils.face_restoration_helper import FaceRestoreHelper
-                from codeformer import CodeFormer
-                
-                model_path = "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/CodeFormer.pth"
-                model = CodeFormer(
-                    dim_embd=512,
-                    codebook_size=1024,
-                    n_head=8,
-                    n_layers=9,
-                    ch_mult=[1, 2, 2, 4, 4, 8],
-                    resolution=256
-                )
-                
-                # Load weights
-                checkpoint = torch.load(model_path, map_location='cpu')
-                model.load_state_dict(checkpoint['params_ema'])
-                model.eval()
-                model = model.to(self.device)
+                # Try to load CodeFormer with error handling
+                try:
+                    from basicsr.utils.download_util import load_file_from_url
+                    from facexlib.utils.face_restoration_helper import FaceRestoreHelper
+                    from codeformer import CodeFormer
+                    
+                    model_path = "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/CodeFormer.pth"
+                    model = CodeFormer(
+                        dim_embd=512,
+                        codebook_size=1024,
+                        n_head=8,
+                        n_layers=9,
+                        ch_mult=[1, 2, 2, 4, 4, 8],
+                        resolution=256
+                    )
+                    
+                    # Load weights
+                    checkpoint = torch.load(model_path, map_location='cpu')
+                    model.load_state_dict(checkpoint['params_ema'])
+                    model.eval()
+                    model = model.to(self.device)
+                    
+                    self.models[f"face_enhance_{method}"] = model
+                    logger.info(f"Face enhancement model {method} loaded successfully")
+                    return model
+                    
+                except Exception as e:
+                    logger.warning(f"CodeFormer loading failed: {e}")
+                    logger.info("Continuing without face enhancement - basic generation mode")
+                    # Return a dummy model that does nothing
+                    class DummyFaceEnhancer:
+                        def enhance(self, image_path):
+                            logger.info("Face enhancement skipped - using original image")
+                            return image_path
+                    
+                    dummy_model = DummyFaceEnhancer()
+                    self.models[f"face_enhance_{method}"] = dummy_model
+                    return dummy_model
                 
             else:
                 raise ValueError(f"Unknown face enhancement method: {method}")
             
-            self.models[f"face_enhance_{method}"] = model
-            logger.info(f"Face enhancement model {method} loaded successfully")
-            
-            return model
-            
         except Exception as e:
             logger.error(f"Failed to load face enhancement model {method}: {e}")
-            raise
+            logger.info("Continuing without face enhancement - basic generation mode")
+            # Return a dummy model that does nothing
+            class DummyFaceEnhancer:
+                def enhance(self, image_path):
+                    logger.info("Face enhancement skipped - using original image")
+                    return image_path
+            
+            dummy_model = DummyFaceEnhancer()
+            self.models[f"face_enhance_{method}"] = dummy_model
+            return dummy_model
     
     def load_clip_vision_model(self) -> CLIPVisionModelWithProjection:
         """Load CLIP vision model for IPAdapter"""

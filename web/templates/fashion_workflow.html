@@ -286,6 +286,89 @@
             </div>
         </div>
 
+        <!-- Logs Container -->
+        <div class="logs-container" id="logsContainer" style="display: none;">
+            <div class="logs-header">
+                <h3>Processing Logs</h3>
+                <div class="logs-controls">
+                    <button class="logs-toggle-btn" id="logsToggleBtn">Hide Logs</button>
+                    <button class="logs-clear-btn" id="logsClearBtn">Clear</button>
+                    <button class="logs-copy-btn" id="logsCopyBtn">Copy</button>
+                </div>
+            </div>
+            <div class="logs-content">
+                <div class="logs-tabs">
+                    <button class="log-tab active" data-tab="processing">Processing</button>
+                    <button class="log-tab" data-tab="errors">Errors</button>
+                    <button class="log-tab" data-tab="system">System</button>
+                </div>
+                <div class="logs-panel active" id="processingLogs">
+                    <div class="log-entries" id="processingLogEntries"></div>
+                </div>
+                <div class="logs-panel" id="errorLogs">
+                    <div class="log-entries" id="errorLogEntries"></div>
+                </div>
+                <div class="logs-panel" id="systemLogs">
+                    <div class="log-entries" id="systemLogEntries"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Management -->
+        <div class="job-management" id="jobManagement" style="display: none;">
+            <div class="job-header">
+                <h3>Job Management</h3>
+                <div class="job-controls">
+                    <button class="job-cancel-btn" id="jobCancelBtn">Cancel Job</button>
+                    <button class="job-refresh-btn" id="jobRefreshBtn">Refresh Status</button>
+                </div>
+            </div>
+            <div class="job-details">
+                <div class="job-info">
+                    <span class="job-id" id="currentJobId"></span>
+                    <span class="job-status" id="currentJobStatus"></span>
+                    <span class="job-progress" id="currentJobProgress"></span>
+                </div>
+                <div class="job-timeline">
+                    <div class="timeline-item" data-step="upload">
+                        <div class="timeline-icon">📤</div>
+                        <div class="timeline-content">
+                            <div class="timeline-title">File Upload</div>
+                            <div class="timeline-status" id="uploadStatus">Pending</div>
+                        </div>
+                    </div>
+                    <div class="timeline-item" data-step="validation">
+                        <div class="timeline-icon">✅</div>
+                        <div class="timeline-content">
+                            <div class="timeline-title">Validation</div>
+                            <div class="timeline-status" id="validationStatus">Pending</div>
+                        </div>
+                    </div>
+                    <div class="timeline-item" data-step="models">
+                        <div class="timeline-icon">🤖</div>
+                        <div class="timeline-content">
+                            <div class="timeline-title">Model Loading</div>
+                            <div class="timeline-status" id="modelsStatus">Pending</div>
+                        </div>
+                    </div>
+                    <div class="timeline-item" data-step="generation">
+                        <div class="timeline-icon">🎨</div>
+                        <div class="timeline-content">
+                            <div class="timeline-title">Generation</div>
+                            <div class="timeline-status" id="generationStatus">Pending</div>
+                        </div>
+                    </div>
+                    <div class="timeline-item" data-step="enhancement">
+                        <div class="timeline-icon">✨</div>
+                        <div class="timeline-content">
+                            <div class="timeline-title">Enhancement</div>
+                            <div class="timeline-status" id="enhancementStatus">Pending</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Status Messages -->
         <div class="status-message" id="statusMessage" style="display: none;"></div>
 

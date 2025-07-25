@@ -78,6 +78,30 @@ class FashionWorkflow {
         this.progressFill = document.getElementById('progressFill');
         this.progressMessage = document.getElementById('progressMessage');
         
+        // Logs elements
+        this.logsContainer = document.getElementById('logsContainer');
+        this.logsToggleBtn = document.getElementById('logsToggleBtn');
+        this.logsClearBtn = document.getElementById('logsClearBtn');
+        this.logsCopyBtn = document.getElementById('logsCopyBtn');
+        this.processingLogEntries = document.getElementById('processingLogEntries');
+        this.errorLogEntries = document.getElementById('errorLogEntries');
+        this.systemLogEntries = document.getElementById('systemLogEntries');
+        
+        // Job management elements
+        this.jobManagement = document.getElementById('jobManagement');
+        this.jobCancelBtn = document.getElementById('jobCancelBtn');
+        this.jobRefreshBtn = document.getElementById('jobRefreshBtn');
+        this.currentJobId = document.getElementById('currentJobId');
+        this.currentJobStatus = document.getElementById('currentJobStatus');
+        this.currentJobProgress = document.getElementById('currentJobProgress');
+        
+        // Timeline elements
+        this.uploadStatus = document.getElementById('uploadStatus');
+        this.validationStatus = document.getElementById('validationStatus');
+        this.modelsStatus = document.getElementById('modelsStatus');
+        this.generationStatus = document.getElementById('generationStatus');
+        this.enhancementStatus = document.getElementById('enhancementStatus');
+        
         // Status elements
         this.statusMessage = document.getElementById('statusMessage');
         
@@ -89,6 +113,13 @@ class FashionWorkflow {
         this.downloadFashionBtn = document.getElementById('downloadFashionBtn');
         this.regenerateBtn = document.getElementById('regenerateBtn');
         this.restartBtn = document.getElementById('restartBtn');
+        
+        // Initialize logs
+        this.logs = {
+            processing: [],
+            errors: [],
+            system: []
+        };
     }
     
     bindEvents() {
@@ -98,26 +129,42 @@ class FashionWorkflow {
         this.clothingFileInput.addEventListener('change', (e) => this.handleClothingDrop(e.target.files));
         this.referencePoseFileInput.addEventListener('change', (e) => this.handleReferencePoseDrop(e.target.files));
         
-        // Pose control events
-        this.poseControlType.addEventListener('change', () => this.handlePoseControlChange());
-        this.posePreset.addEventListener('change', () => this.handlePosePresetChange());
-        
-        // Form validation events
+        // Form events
         this.avatarStyle.addEventListener('change', () => this.updateStyleDescription());
         this.customPrompt.addEventListener('input', () => this.validateForm());
         this.scenePrompt.addEventListener('input', () => this.validateForm());
         
+        // Quality mode events
+        this.qualityModeGroup.addEventListener('change', () => this.updateQualityInfo());
+        this.fashionQualityModeGroup.addEventListener('change', () => this.updateQualityInfo());
+        
+        // Pose control events
+        this.poseControlType.addEventListener('change', () => this.handlePoseControlChange());
+        this.posePreset.addEventListener('change', () => this.handlePosePresetChange());
+        
         // Button events
         this.generateAvatarBtn.addEventListener('click', () => this.generateAvatar());
         this.generateFashionBtn.addEventListener('click', () => this.generateFashionPhoto());
+        
+        // Results events
         this.downloadAvatarBtn.addEventListener('click', () => this.downloadFile('avatar'));
         this.downloadFashionBtn.addEventListener('click', () => this.downloadFile('fashion'));
         this.regenerateBtn.addEventListener('click', () => this.regeneratePhoto());
         this.restartBtn.addEventListener('click', () => this.restartWorkflow());
         
-        // Quality mode events
-        this.qualityModeGroup.addEventListener('change', () => this.updateQualityInfo());
-        this.fashionQualityModeGroup.addEventListener('change', () => this.updateQualityInfo());
+        // Logs events
+        this.logsToggleBtn.addEventListener('click', () => this.toggleLogs());
+        this.logsClearBtn.addEventListener('click', () => this.clearLogs());
+        this.logsCopyBtn.addEventListener('click', () => this.copyLogs());
+        
+        // Job management events
+        this.jobCancelBtn.addEventListener('click', () => this.cancelJob());
+        this.jobRefreshBtn.addEventListener('click', () => this.refreshJobStatus());
+        
+        // Log tabs events
+        document.querySelectorAll('.log-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => this.switchLogTab(e.target.dataset.tab));
+        });
     }
     
     initializeDragAndDrop() {
@@ -536,25 +583,18 @@ class FashionWorkflow {
     async generateAvatar() {
         if (!this.validateForm()) return;
         
+        this.addLog('Starting avatar generation...', 'info', 'processing');
+        this.showJobManagement('avatar_generation', 'pending');
+        
         try {
-            this.startGeneration('Generating Digital Twin...');
-            
             const formData = new FormData();
-            
-            // Add file with proper error handling
-            const file = this.selfiesFileInput.files[0];
-            if (!file) {
-                this.handleGenerationFailed('No file selected');
-                return;
-            }
-            
-            formData.append('selfies_zip', file);
+            formData.append('selfies_zip', this.selfiesFileInput.files[0]);
             formData.append('avatar_style', this.avatarStyle.value);
             formData.append('custom_prompt', this.customPrompt.value);
-            formData.append('quality_mode', this.qualityModeGroup.querySelector('input:checked').value);
+            formData.append('quality_mode', this.getSelectedQualityMode());
             
-            // Show upload progress
-            this.showUploadProgress('Uploading selfies...');
+            this.addLog('Uploading selfies...', 'info', 'processing');
+            this.updateTimelineStep('upload', 'active');
             
             const response = await fetch('/upload-selfies', {
                 method: 'POST',
@@ -565,15 +605,23 @@ class FashionWorkflow {
                 const result = await response.json();
                 this.sessionId = result.session_id;
                 this.avatarJobId = result.job_id;
-                this.showStatus('Upload successful! Starting avatar generation...', 'success');
+                
+                this.addLog(`Avatar generation job started: ${result.job_id}`, 'success', 'processing');
+                this.updateTimelineStep('upload', 'completed');
+                this.updateTimelineStep('validation', 'active');
+                
+                this.startGeneration('Generating Digital Twin...');
                 this.startStatusPolling();
             } else {
                 const error = await response.json();
-                this.handleGenerationFailed(error.error || 'Upload failed');
+                this.addLog(`Upload failed: ${error.error}`, 'error', 'errors');
+                this.showStatus(error.error, 'error');
+                this.updateTimelineStep('upload', 'failed');
             }
-            
         } catch (error) {
-            this.handleGenerationFailed(`Upload failed: ${error.message}`);
+            this.addLog(`Generation failed: ${error.message}`, 'error', 'errors');
+            this.showStatus('Generation failed', 'error');
+            this.updateTimelineStep('upload', 'failed');
         }
     }
     
@@ -807,6 +855,217 @@ class FashionWorkflow {
     showUploadProgress(message) {
         this.showStatus(message, 'info');
         // You can add a progress bar here if needed
+    }
+    
+    // Logs Management Methods
+    addLog(message, type = 'info', category = 'processing') {
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry = {
+            timestamp,
+            message,
+            type,
+            category
+        };
+        
+        this.logs[category].push(logEntry);
+        this.updateLogDisplay(category);
+        
+        // Auto-show logs container if it's hidden
+        if (this.logsContainer.style.display === 'none') {
+            this.showLogs();
+        }
+    }
+    
+    updateLogDisplay(category) {
+        const container = document.getElementById(`${category}LogEntries`);
+        if (!container) return;
+        
+        container.innerHTML = '';
+        this.logs[category].forEach(entry => {
+            const logElement = document.createElement('div');
+            logElement.className = `log-entry ${entry.type}`;
+            logElement.innerHTML = `
+                <span class="log-timestamp">[${entry.timestamp}]</span>
+                <span class="log-message">${entry.message}</span>
+            `;
+            container.appendChild(logElement);
+        });
+        
+        // Auto-scroll to bottom
+        container.scrollTop = container.scrollHeight;
+    }
+    
+    showLogs() {
+        this.logsContainer.style.display = 'block';
+        this.logsToggleBtn.textContent = 'Hide Logs';
+    }
+    
+    hideLogs() {
+        this.logsContainer.style.display = 'none';
+        this.logsToggleBtn.textContent = 'Show Logs';
+    }
+    
+    toggleLogs() {
+        if (this.logsContainer.style.display === 'none') {
+            this.showLogs();
+        } else {
+            this.hideLogs();
+        }
+    }
+    
+    clearLogs() {
+        this.logs.processing = [];
+        this.logs.errors = [];
+        this.logs.system = [];
+        this.updateLogDisplay('processing');
+        this.updateLogDisplay('errors');
+        this.updateLogDisplay('system');
+    }
+    
+    copyLogs() {
+        const activeTab = document.querySelector('.log-tab.active').dataset.tab;
+        const logs = this.logs[activeTab];
+        const logText = logs.map(log => `[${log.timestamp}] ${log.message}`).join('\n');
+        
+        navigator.clipboard.writeText(logText).then(() => {
+            this.showStatus('Logs copied to clipboard', 'success');
+        }).catch(() => {
+            this.showStatus('Failed to copy logs', 'error');
+        });
+    }
+    
+    switchLogTab(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.log-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        
+        // Update panels
+        document.querySelectorAll('.logs-panel').forEach(panel => {
+            panel.classList.remove('active');
+        });
+        document.getElementById(`${tabName}Logs`).classList.add('active');
+    }
+    
+    // Job Management Methods
+    showJobManagement(jobId, status = 'pending') {
+        this.jobManagement.style.display = 'block';
+        this.currentJobId.textContent = `Job ID: ${jobId}`;
+        this.currentJobStatus.textContent = `Status: ${status}`;
+        this.currentJobProgress.textContent = 'Progress: 0%';
+        
+        // Reset timeline
+        this.resetTimeline();
+        this.updateTimelineStep('upload', 'active');
+    }
+    
+    hideJobManagement() {
+        this.jobManagement.style.display = 'none';
+    }
+    
+    updateJobStatus(status, progress = 0) {
+        this.currentJobStatus.textContent = `Status: ${status}`;
+        this.currentJobProgress.textContent = `Progress: ${progress}%`;
+        
+        // Update timeline based on status
+        this.updateTimelineFromStatus(status, progress);
+    }
+    
+    resetTimeline() {
+        const steps = ['upload', 'validation', 'models', 'generation', 'enhancement'];
+        steps.forEach(step => {
+            const element = document.querySelector(`[data-step="${step}"]`);
+            element.classList.remove('active', 'completed', 'failed');
+            const statusElement = document.getElementById(`${step}Status`);
+            statusElement.textContent = 'Pending';
+        });
+    }
+    
+    updateTimelineStep(step, status) {
+        const element = document.querySelector(`[data-step="${step}"]`);
+        const statusElement = document.getElementById(`${step}Status`);
+        
+        element.classList.remove('active', 'completed', 'failed');
+        element.classList.add(status);
+        
+        switch (status) {
+            case 'active':
+                statusElement.textContent = 'In Progress';
+                break;
+            case 'completed':
+                statusElement.textContent = 'Completed';
+                break;
+            case 'failed':
+                statusElement.textContent = 'Failed';
+                break;
+        }
+    }
+    
+    updateTimelineFromStatus(status, progress) {
+        const steps = ['upload', 'validation', 'models', 'generation', 'enhancement'];
+        
+        if (progress <= 10) {
+            this.updateTimelineStep('upload', 'active');
+        } else if (progress <= 20) {
+            this.updateTimelineStep('upload', 'completed');
+            this.updateTimelineStep('validation', 'active');
+        } else if (progress <= 30) {
+            this.updateTimelineStep('validation', 'completed');
+            this.updateTimelineStep('models', 'active');
+        } else if (progress <= 50) {
+            this.updateTimelineStep('models', 'completed');
+            this.updateTimelineStep('generation', 'active');
+        } else if (progress <= 80) {
+            this.updateTimelineStep('generation', 'completed');
+            this.updateTimelineStep('enhancement', 'active');
+        } else if (progress >= 100) {
+            this.updateTimelineStep('enhancement', 'completed');
+        }
+    }
+    
+    async cancelJob() {
+        if (!this.avatarJobId && !this.fashionJobId) {
+            this.showStatus('No active job to cancel', 'warning');
+            return;
+        }
+        
+        try {
+            const jobId = this.avatarJobId || this.fashionJobId;
+            const response = await fetch(`/cancel-job/${jobId}`, { method: 'POST' });
+            
+            if (response.ok) {
+                this.showStatus('Job cancelled successfully', 'success');
+                this.hideJobManagement();
+                this.hideProgress();
+            } else {
+                this.showStatus('Failed to cancel job', 'error');
+            }
+        } catch (error) {
+            this.showStatus('Failed to cancel job', 'error');
+        }
+    }
+    
+    async refreshJobStatus() {
+        const jobId = this.avatarJobId || this.fashionJobId;
+        if (!jobId) return;
+        
+        try {
+            const response = await fetch(`/status/${jobId}`);
+            if (response.ok) {
+                const status = await response.json();
+                this.updateJobStatus(status.status, status.progress);
+                this.addLog(`Job status refreshed: ${status.status} (${status.progress}%)`, 'info', 'system');
+            }
+        } catch (error) {
+            this.addLog('Failed to refresh job status', 'error', 'system');
+        }
+    }
+    
+    // Enhanced generation methods with logging
+    getSelectedQualityMode() {
+        const checkedRadio = this.qualityModeGroup.querySelector('input[type="radio"]:checked');
+        return checkedRadio ? checkedRadio.value : 'high_fidelity';
     }
 }
 

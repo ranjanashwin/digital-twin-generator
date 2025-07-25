@@ -49,21 +49,36 @@ class ModelLoader:
             
             # Load refiner if requested
             if use_refiner:
-                refiner_id = MODEL_CONFIGS["sdxl"]["refiner"]
-                refiner = StableDiffusionXLPipeline.from_pretrained(
-                    refiner_id,
-                    torch_dtype=torch.float16 if GPU_CONFIG["precision"] == "fp16" else torch.float32,
-                    use_safetensors=True,
-                    variant="fp16" if GPU_CONFIG["precision"] == "fp16" else None,
-                )
-                pipeline.refiner = refiner
+                try:
+                    refiner_id = MODEL_CONFIGS["sdxl"]["refiner"]
+                    refiner = StableDiffusionXLPipeline.from_pretrained(
+                        refiner_id,
+                        torch_dtype=torch.float16 if GPU_CONFIG["precision"] == "fp16" else torch.float32,
+                        use_safetensors=True,
+                        variant="fp16" if GPU_CONFIG["precision"] == "fp16" else None,
+                    )
+                    
+                    # Apply same optimizations to refiner
+                    if GPU_CONFIG["attention_slicing"]:
+                        refiner.enable_attention_slicing()
+                    
+                    # Move refiner to device
+                    refiner = refiner.to(self.device)
+                    
+                    pipeline.refiner = refiner
+                    logger.info("SDXL refiner loaded successfully")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to load refiner, continuing without it: {e}")
+                    # Continue without refiner if it fails to load
             
             # Optimize for memory
             if GPU_CONFIG["attention_slicing"]:
                 pipeline.enable_attention_slicing()
             
-            if GPU_CONFIG["gradient_checkpointing"]:
-                pipeline.enable_gradient_checkpointing()
+            # Note: enable_gradient_checkpointing() is not available in current diffusers version
+            # if GPU_CONFIG["gradient_checkpointing"]:
+            #     pipeline.enable_gradient_checkpointing()
             
             # Move to device
             pipeline = pipeline.to(self.device)

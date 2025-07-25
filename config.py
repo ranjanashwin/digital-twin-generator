@@ -114,7 +114,8 @@ GPU_CONFIG = {
     "memory_fraction": 0.9,
     "precision": "fp16",  # "fp16" or "fp32"
     "attention_slicing": True,
-    "gradient_checkpointing": True,
+    # Note: gradient_checkpointing is not available in current diffusers version
+    # "gradient_checkpointing": True,
 }
 
 # Logging settings

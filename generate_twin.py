@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 import torch
 import numpy as np
 from PIL import Image

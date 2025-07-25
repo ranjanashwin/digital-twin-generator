@@ -27,7 +27,7 @@ from config import (
 from utils.face_utils import validate_selfie_folder, process_selfies_for_training, verify_same_person
 from utils.model_loader import get_model_loader
 from utils.pose_lighting_analyzer import PoseLightingAnalyzer
-from utils.controlnet_integration import ControlNetIntegrator
+from utils.controlnet_integration import ControlNetProcessor
 from utils.lora_trainer import LoRAManager
 from utils.ipadapter_manager import IPAdapterManager
 from config import CURRENT_QUALITY, FACE_ENHANCEMENT_CONFIG, CONTROLNET_CONFIG
@@ -48,7 +48,7 @@ class DigitalTwinGenerator:
         self.ip_adapter = None
         self.face_enhancer = None
         self.pose_analyzer = PoseLightingAnalyzer()
-        self.controlnet_integrator = ControlNetIntegrator()
+        self.controlnet_integrator = ControlNetProcessor()
         self.lora_manager = LoRAManager()
         self.ipadapter_manager = IPAdapterManager()
         

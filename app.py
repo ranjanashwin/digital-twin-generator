@@ -337,14 +337,27 @@ def generate_avatar_worker(session_id: str, job_id: str, session_dir: Path,
         
         # Validate selfies
         selfies_dir = session_dir / "selfies"
+        
+        # Check if selfies directory exists
+        if not selfies_dir.exists():
+            raise ValueError(f"Selfies directory not found: {selfies_dir}")
+        
+        # Get all image files
         image_paths = list(selfies_dir.glob("*"))
         image_paths = [str(p) for p in image_paths if p.is_file()]
         
-        if len(image_paths) < 15:
-            raise ValueError(f"Insufficient images. Found {len(image_paths)} images, minimum 15 required.")
+        logger.info(f"Found {len(image_paths)} files in selfies directory")
+        
+        # Filter for valid image files
+        valid_image_paths = [p for p in image_paths if allowed_file(Path(p).name, {'png', 'jpg', 'jpeg', 'webp'})]
+        
+        logger.info(f"Found {len(valid_image_paths)} valid image files")
+        
+        if len(valid_image_paths) < 15:
+            raise ValueError(f"Insufficient images. Found {len(valid_image_paths)} valid images, minimum 15 required.")
         
         # Validate images with comprehensive checks
-        validation_results = image_validator.validate_image_set(image_paths)
+        validation_results = image_validator.validate_image_set(valid_image_paths)
         if not validation_results['summary']['meets_requirements']:
             raise ValueError(f"Image validation failed: {validation_results['summary']}")
         
@@ -401,7 +414,7 @@ def generate_avatar_worker(session_id: str, job_id: str, session_dir: Path,
             'prompt': enhanced_prompt,
             'style': avatar_style,
             'quality_mode': quality_mode,
-            'image_count': len(image_paths),
+            'image_count': len(valid_image_paths),
             'validation_summary': validation_results['summary'],
             'workflow_step': 'step1_completed'
         })
@@ -649,11 +662,27 @@ def upload_selfies():
                 
                 logger.info(f"ZIP contains {len(image_files)} valid image files")
                 
+                # Extract ZIP file to session directory
+                extract_dir = session_dir / "selfies"
+                extract_dir.mkdir(parents=True, exist_ok=True)
+                
+                logger.info(f"Extracting ZIP to: {extract_dir}")
+                zip_ref.extractall(extract_dir)
+                
+                # Verify extraction
+                extracted_images = list(extract_dir.glob("*"))
+                extracted_images = [f for f in extracted_images if f.is_file() and allowed_file(f.name, {'png', 'jpg', 'jpeg', 'webp'})]
+                
+                logger.info(f"Extracted {len(extracted_images)} image files")
+                
+                if len(extracted_images) < 15:
+                    return jsonify({'error': f'Failed to extract enough images. Found: {len(extracted_images)}'}), 400
+                
         except zipfile.BadZipFile:
             return jsonify({'error': 'Invalid ZIP file format'}), 400
         except Exception as e:
-            logger.error(f"ZIP validation failed: {e}")
-            return jsonify({'error': f'ZIP validation failed: {str(e)}'}), 500
+            logger.error(f"ZIP validation/extraction failed: {e}")
+            return jsonify({'error': f'ZIP processing failed: {str(e)}'}), 500
         
         # Create job for avatar generation
         job_id = f"avatar_{session_id}_{int(time.time())}"

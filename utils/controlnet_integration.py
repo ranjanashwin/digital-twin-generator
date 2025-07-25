@@ -14,6 +14,9 @@ import cv2
 from PIL import Image
 import json
 import time
+import mediapipe as mp
+import copy
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,38 @@ class ControlNetProcessor:
             'canny': {
                 'path': self.model_dir / 'control_v11p_sd15_canny.pth',
                 'url': 'https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11p_sd15_canny.pth'
+            }
+        }
+        
+        # Initialize MediaPipe
+        self.mp_pose = mp.solutions.pose
+        self.mp_drawing = mp.solutions.drawing_utils
+        
+        # Pose presets for fashion
+        self.pose_presets = {
+            'fashion_portrait': {
+                'head_angle': 15,
+                'shoulder_tilt': 5,
+                'confidence': 0.8,
+                'description': 'Professional fashion portrait pose'
+            },
+            'street_style': {
+                'head_angle': 0,
+                'shoulder_tilt': 0,
+                'confidence': 0.6,
+                'description': 'Natural street style pose'
+            },
+            'studio_fashion': {
+                'head_angle': 20,
+                'shoulder_tilt': 10,
+                'confidence': 0.9,
+                'description': 'High-end studio fashion pose'
+            },
+            'editorial': {
+                'head_angle': 25,
+                'shoulder_tilt': 15,
+                'confidence': 0.95,
+                'description': 'Dramatic editorial pose'
             }
         }
     
@@ -109,26 +144,174 @@ class ControlNetProcessor:
         logger.info("Loading canny model...")
         return {"type": "canny", "loaded": True}
     
-    def create_pose_conditioning(self, avatar_path: str, clothing_path: str) -> Dict[str, Any]:
-        """Create pose conditioning for fashion photo generation"""
+    def create_pose_conditioning(self, avatar_path: str, clothing_path: str, 
+                                reference_pose_path: Optional[str] = None,
+                                pose_preset: Optional[str] = None) -> Dict[str, Any]:
+        """Create pose conditioning for fashion photo generation with advanced pose control"""
         try:
-            logger.info("Creating pose conditioning...")
+            logger.info("Creating advanced pose conditioning...")
             
             # Load avatar image
             avatar_img = self._load_and_preprocess_image(avatar_path)
             
-            # Extract pose from avatar
-            pose_data = self._extract_pose_from_avatar(avatar_img)
+            # Determine pose source
+            if reference_pose_path and os.path.exists(reference_pose_path):
+                # Use reference pose image
+                pose_data = self._extract_pose_from_reference(reference_pose_path)
+                pose_source = "reference"
+            elif pose_preset and pose_preset in self.pose_presets:
+                # Use preset pose
+                pose_data = self._create_preset_pose(pose_preset)
+                pose_source = "preset"
+            else:
+                # Extract pose from avatar
+                pose_data = self._extract_pose_from_avatar(avatar_img)
+                pose_source = "avatar"
             
             # Create pose conditioning
-            pose_conditioning = self._create_pose_conditioning(pose_data, clothing_path)
+            pose_conditioning = self._create_pose_conditioning(pose_data, clothing_path, pose_source)
             
-            logger.info("Pose conditioning created successfully")
+            logger.info(f"Advanced pose conditioning created using {pose_source}")
             return pose_conditioning
             
         except Exception as e:
             logger.error(f"Failed to create pose conditioning: {e}")
             raise
+    
+    def _extract_pose_from_reference(self, reference_pose_path: str) -> Dict[str, Any]:
+        """Extract pose from reference pose image"""
+        try:
+            # Load reference pose image
+            pose_img = cv2.imread(reference_pose_path)
+            if pose_img is None:
+                raise ValueError(f"Failed to load reference pose image: {reference_pose_path}")
+            
+            # Convert to RGB for MediaPipe
+            pose_rgb = cv2.cvtColor(pose_img, cv2.COLOR_BGR2RGB)
+            
+            # Extract pose using MediaPipe
+            with self.mp_pose.Pose(
+                static_image_mode=True,
+                model_complexity=2,
+                enable_segmentation=True,
+                min_detection_confidence=0.5
+            ) as pose:
+                results = pose.process(pose_rgb)
+                
+                if not results.pose_landmarks:
+                    raise ValueError("No pose landmarks detected in reference image")
+                
+                # Convert landmarks to our format
+                pose_data = self._convert_mediapipe_landmarks(results.pose_landmarks, pose_rgb.shape)
+                
+                return pose_data
+                
+        except Exception as e:
+            logger.error(f"Failed to extract pose from reference: {e}")
+            raise
+    
+    def _create_preset_pose(self, preset_name: str) -> Dict[str, Any]:
+        """Create pose data from preset"""
+        preset = self.pose_presets[preset_name]
+        
+        # Create synthetic pose data based on preset
+        pose_data = {
+            'keypoints': {
+                'nose': [256, 170],
+                'left_shoulder': [200, 256],
+                'right_shoulder': [312, 256],
+                'left_elbow': [150, 341],
+                'right_elbow': [362, 341],
+                'left_wrist': [100, 426],
+                'right_wrist': [412, 426],
+                'left_hip': [200, 426],
+                'right_hip': [312, 426],
+                'left_knee': [200, 512],
+                'right_knee': [312, 512]
+            },
+            'confidence': preset['confidence'],
+            'image_size': (512, 512),
+            'preset_name': preset_name,
+            'preset_config': preset
+        }
+        
+        # Apply preset modifications
+        pose_data = self._apply_preset_modifications(pose_data, preset)
+        
+        return pose_data
+    
+    def _apply_preset_modifications(self, pose_data: Dict[str, Any], preset: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply preset modifications to pose data"""
+        keypoints = pose_data['keypoints']
+        
+        # Apply head angle
+        head_angle = preset.get('head_angle', 0)
+        if head_angle != 0:
+            # Rotate head keypoints
+            nose = keypoints['nose']
+            left_eye = [nose[0] - 20, nose[1] - 10]
+            right_eye = [nose[0] + 20, nose[1] - 10]
+            
+            # Apply rotation
+            angle_rad = math.radians(head_angle)
+            cos_a, sin_a = math.cos(angle_rad), math.sin(angle_rad)
+            
+            for point_name in ['nose', 'left_eye', 'right_eye']:
+                if point_name in keypoints:
+                    x, y = keypoints[point_name]
+                    center_x, center_y = nose[0], nose[1]
+                    dx = x - center_x
+                    dy = y - center_y
+                    keypoints[point_name] = [
+                        center_x + dx * cos_a - dy * sin_a,
+                        center_y + dx * sin_a + dy * cos_a
+                    ]
+        
+        # Apply shoulder tilt
+        shoulder_tilt = preset.get('shoulder_tilt', 0)
+        if shoulder_tilt != 0:
+            left_shoulder = keypoints['left_shoulder']
+            right_shoulder = keypoints['right_shoulder']
+            
+            # Adjust shoulder heights
+            left_shoulder[1] += shoulder_tilt
+            right_shoulder[1] -= shoulder_tilt
+        
+        return pose_data
+    
+    def _convert_mediapipe_landmarks(self, landmarks, image_shape: Tuple[int, int, int]) -> Dict[str, Any]:
+        """Convert MediaPipe landmarks to our format"""
+        height, width = image_shape[:2]
+        
+        # Define key landmark mappings
+        landmark_mapping = {
+            'nose': self.mp_pose.PoseLandmark.NOSE,
+            'left_shoulder': self.mp_pose.PoseLandmark.LEFT_SHOULDER,
+            'right_shoulder': self.mp_pose.PoseLandmark.RIGHT_SHOULDER,
+            'left_elbow': self.mp_pose.PoseLandmark.LEFT_ELBOW,
+            'right_elbow': self.mp_pose.PoseLandmark.RIGHT_ELBOW,
+            'left_wrist': self.mp_pose.PoseLandmark.LEFT_WRIST,
+            'right_wrist': self.mp_pose.PoseLandmark.RIGHT_WRIST,
+            'left_hip': self.mp_pose.PoseLandmark.LEFT_HIP,
+            'right_hip': self.mp_pose.PoseLandmark.RIGHT_HIP,
+            'left_knee': self.mp_pose.PoseLandmark.LEFT_KNEE,
+            'right_knee': self.mp_pose.PoseLandmark.RIGHT_KNEE
+        }
+        
+        keypoints = {}
+        for name, landmark_idx in landmark_mapping.items():
+            if landmark_idx < len(landmarks.landmark):
+                landmark = landmarks.landmark[landmark_idx]
+                keypoints[name] = [
+                    int(landmark.x * width),
+                    int(landmark.y * height)
+                ]
+        
+        return {
+            'keypoints': keypoints,
+            'confidence': 0.85,
+            'image_size': (width, height)
+        }
     
     def _load_and_preprocess_image(self, image_path: str) -> np.ndarray:
         """Load and preprocess image"""
@@ -169,19 +352,23 @@ class ControlNetProcessor:
         return pose_data
     
     def _create_pose_conditioning(self, pose_data: Dict[str, Any], 
-                                 clothing_path: str) -> Dict[str, Any]:
+                                 clothing_path: str, pose_source: str) -> Dict[str, Any]:
         """Create pose conditioning for ControlNet"""
-        # Simplified pose conditioning creation
-        # In production, this would create proper ControlNet conditioning
-        
+        # Enhanced pose conditioning creation
         conditioning = {
             'pose_data': pose_data,
             'clothing_path': clothing_path,
             'conditioning_type': 'pose',
-            'strength': 0.8
+            'strength': 0.8,
+            'pose_source': pose_source,
+            'timestamp': time.time()
         }
         
         return conditioning
+    
+    def get_available_pose_presets(self) -> Dict[str, Dict[str, Any]]:
+        """Get available pose presets"""
+        return self.pose_presets
     
     def generate_fashion_photo(self, avatar_path: str, clothing_path: str, 
                               scene_prompt: str, pose_conditioning: Dict[str, Any],

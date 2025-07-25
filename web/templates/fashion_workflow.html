@@ -114,7 +114,7 @@
                     <div class="step-number">2</div>
                     <div class="step-content">
                         <h3>Upload Clothing & Scene</h3>
-                        <p>Add clothing and describe the scene</p>
+                        <p>Add clothing items and describe the scene</p>
                     </div>
                     <div class="step-status" id="step2-status">pending</div>
                 </div>
@@ -122,20 +122,61 @@
                 <div class="step-content-area">
                     <div class="upload-section">
                         <div class="upload-group">
-                            <h4>Clothing Image (Required)</h4>
+                            <h4>Clothing Items (Required)</h4>
                             <div class="file-upload-area" id="clothingUploadArea">
                                 <div class="upload-icon">👕</div>
-                                <p>Drag & drop clothing image here</p>
+                                <p>Drag & drop multiple clothing images here</p>
                                 <p class="upload-hint">or click to browse</p>
-                                <input type="file" id="clothingFileInput" accept="image/*" style="display: none;">
+                                <input type="file" id="clothingFileInput" accept="image/*" multiple style="display: none;">
                             </div>
-                            <div class="file-preview" id="clothingFilePreview" style="display: none;">
-                                <div class="preview-content">
-                                    <img class="preview-image" id="clothingPreviewImage" alt="Clothing preview">
-                                    <div class="preview-info">
-                                        <span class="file-name" id="clothingFileName"></span>
-                                        <span class="file-size" id="clothingFileSize"></span>
+                            <div class="clothing-preview-container" id="clothingPreviewContainer" style="display: none;">
+                                <h5>Uploaded Clothing Items:</h5>
+                                <div class="clothing-items-grid" id="clothingItemsGrid"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pose-control-section">
+                        <h4>Advanced Pose Control</h4>
+                        
+                        <div class="pose-options">
+                            <div class="option-group">
+                                <label for="poseControlType">Pose Control Type:</label>
+                                <select id="poseControlType" name="pose_control_type">
+                                    <option value="auto">Auto (from avatar)</option>
+                                    <option value="reference">Reference Image</option>
+                                    <option value="preset">Preset Pose</option>
+                                </select>
+                            </div>
+
+                            <div class="pose-option-content" id="referencePoseContent" style="display: none;">
+                                <div class="option-group">
+                                    <label for="referencePoseFile">Reference Pose Image:</label>
+                                    <div class="file-upload-area" id="referencePoseUploadArea">
+                                        <div class="upload-icon">🎭</div>
+                                        <p>Upload a pose reference image</p>
+                                        <p class="upload-hint">or click to browse</p>
+                                        <input type="file" id="referencePoseFileInput" accept="image/*" style="display: none;">
                                     </div>
+                                    <div class="file-preview" id="referencePoseFilePreview" style="display: none;">
+                                        <div class="preview-content">
+                                            <img class="preview-image" id="referencePosePreviewImage" alt="Pose preview">
+                                            <div class="preview-info">
+                                                <span class="file-name" id="referencePoseFileName"></span>
+                                                <span class="file-size" id="referencePoseFileSize"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="pose-option-content" id="presetPoseContent" style="display: none;">
+                                <div class="option-group">
+                                    <label for="posePreset">Pose Preset:</label>
+                                    <select id="posePreset" name="pose_preset">
+                                        <option value="">Select a pose preset...</option>
+                                    </select>
+                                    <div class="preset-description" id="presetDescription"></div>
                                 </div>
                             </div>
                         </div>
@@ -182,6 +223,12 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+
+                    <div class="compatibility-section" id="compatibilitySection" style="display: none;">
+                        <h4>Clothing Compatibility</h4>
+                        <div class="compatibility-status" id="compatibilityStatus"></div>
+                        <div class="compatibility-suggestions" id="compatibilitySuggestions"></div>
                     </div>
 
                     <button class="generate-btn" id="generateFashionBtn" disabled>

@@ -6,8 +6,11 @@ class FashionWorkflow {
     constructor() {
         this.currentStep = 1;
         this.sessionId = null;
-        this.currentJobId = null;
-        this.pollingInterval = null;
+        this.avatarJobId = null;
+        this.fashionJobId = null;
+        this.clothingItems = [];
+        this.posePresets = {};
+        this.clothingTypes = {};
         
         this.initializeElements();
         this.bindEvents();
@@ -20,35 +23,54 @@ class FashionWorkflow {
         this.step2 = document.getElementById('step2');
         this.step3 = document.getElementById('step3');
         
-        // Upload areas
+        // Step status elements
+        this.step1Status = document.getElementById('step1-status');
+        this.step2Status = document.getElementById('step2-status');
+        this.step3Status = document.getElementById('step3-status');
+        
+        // File upload elements
         this.selfiesUploadArea = document.getElementById('selfiesUploadArea');
-        this.clothingUploadArea = document.getElementById('clothingUploadArea');
-        
-        // File inputs
         this.selfiesFileInput = document.getElementById('selfiesFileInput');
-        this.clothingFileInput = document.getElementById('clothingFileInput');
-        
-        // File previews
         this.selfiesFilePreview = document.getElementById('selfiesFilePreview');
-        this.clothingFilePreview = document.getElementById('clothingFilePreview');
+        this.selfiesFileName = document.getElementById('selfiesFileName');
+        this.selfiesFileSize = document.getElementById('selfiesFileSize');
         
-        // Customization elements
+        this.clothingUploadArea = document.getElementById('clothingUploadArea');
+        this.clothingFileInput = document.getElementById('clothingFileInput');
+        this.clothingPreviewContainer = document.getElementById('clothingPreviewContainer');
+        this.clothingItemsGrid = document.getElementById('clothingItemsGrid');
+        
+        // Pose control elements
+        this.poseControlType = document.getElementById('poseControlType');
+        this.referencePoseContent = document.getElementById('referencePoseContent');
+        this.presetPoseContent = document.getElementById('presetPoseContent');
+        this.referencePoseUploadArea = document.getElementById('referencePoseUploadArea');
+        this.referencePoseFileInput = document.getElementById('referencePoseFileInput');
+        this.referencePoseFilePreview = document.getElementById('referencePoseFilePreview');
+        this.referencePosePreviewImage = document.getElementById('referencePosePreviewImage');
+        this.referencePoseFileName = document.getElementById('referencePoseFileName');
+        this.referencePoseFileSize = document.getElementById('referencePoseFileSize');
+        this.posePreset = document.getElementById('posePreset');
+        this.presetDescription = document.getElementById('presetDescription');
+        
+        // Compatibility elements
+        this.compatibilitySection = document.getElementById('compatibilitySection');
+        this.compatibilityStatus = document.getElementById('compatibilityStatus');
+        this.compatibilitySuggestions = document.getElementById('compatibilitySuggestions');
+        
+        // Form elements
         this.avatarStyle = document.getElementById('avatarStyle');
         this.customPrompt = document.getElementById('customPrompt');
         this.scenePrompt = document.getElementById('scenePrompt');
         this.styleDescription = document.getElementById('styleDescription');
         
-        // Quality mode groups
+        // Quality mode elements
         this.qualityModeGroup = document.getElementById('qualityModeGroup');
         this.fashionQualityModeGroup = document.getElementById('fashionQualityModeGroup');
         
-        // Buttons
+        // Button elements
         this.generateAvatarBtn = document.getElementById('generateAvatarBtn');
         this.generateFashionBtn = document.getElementById('generateFashionBtn');
-        this.downloadAvatarBtn = document.getElementById('downloadAvatarBtn');
-        this.downloadFashionBtn = document.getElementById('downloadFashionBtn');
-        this.regenerateBtn = document.getElementById('regenerateBtn');
-        this.restartBtn = document.getElementById('restartBtn');
         
         // Progress elements
         this.progressContainer = document.getElementById('progressContainer');
@@ -58,352 +80,562 @@ class FashionWorkflow {
         
         // Status elements
         this.statusMessage = document.getElementById('statusMessage');
-        this.resultsContainer = document.getElementById('resultsContainer');
         
-        // Step status elements
-        this.step1Status = document.getElementById('step1-status');
-        this.step2Status = document.getElementById('step2-status');
-        this.step3Status = document.getElementById('step3-status');
+        // Results elements
+        this.resultsContainer = document.getElementById('resultsContainer');
+        this.avatarResult = document.getElementById('avatarResult');
+        this.fashionResult = document.getElementById('fashionResult');
+        this.downloadAvatarBtn = document.getElementById('downloadAvatarBtn');
+        this.downloadFashionBtn = document.getElementById('downloadFashionBtn');
+        this.regenerateBtn = document.getElementById('regenerateBtn');
+        this.restartBtn = document.getElementById('restartBtn');
     }
     
     bindEvents() {
         // File upload events
-        this.bindFileUploadEvents();
+        this.initializeDragAndDrop();
+        this.selfiesFileInput.addEventListener('change', (e) => this.handleSelfiesDrop(e.target.files));
+        this.clothingFileInput.addEventListener('change', (e) => this.handleClothingDrop(e.target.files));
+        this.referencePoseFileInput.addEventListener('change', (e) => this.handleReferencePoseDrop(e.target.files));
         
-        // Customization events
-        this.bindCustomizationEvents();
+        // Pose control events
+        this.poseControlType.addEventListener('change', () => this.handlePoseControlChange());
+        this.posePreset.addEventListener('change', () => this.handlePosePresetChange());
+        
+        // Form validation events
+        this.avatarStyle.addEventListener('change', () => this.updateStyleDescription());
+        this.customPrompt.addEventListener('input', () => this.validateForm());
+        this.scenePrompt.addEventListener('input', () => this.validateForm());
         
         // Button events
-        this.bindButtonEvents();
+        this.generateAvatarBtn.addEventListener('click', () => this.generateAvatar());
+        this.generateFashionBtn.addEventListener('click', () => this.generateFashionPhoto());
+        this.downloadAvatarBtn.addEventListener('click', () => this.downloadFile('avatar'));
+        this.downloadFashionBtn.addEventListener('click', () => this.downloadFile('fashion'));
+        this.regenerateBtn.addEventListener('click', () => this.regeneratePhoto());
+        this.restartBtn.addEventListener('click', () => this.restartWorkflow());
         
-        // Form validation
-        this.bindValidationEvents();
-    }
-    
-    bindFileUploadEvents() {
-        // Selfies upload
-        this.selfiesUploadArea.addEventListener('click', () => this.selfiesFileInput.click());
-        this.selfiesFileInput.addEventListener('change', (e) => this.handleSelfiesFileSelect(e));
-        this.initializeDragAndDrop(this.selfiesUploadArea, this.handleSelfiesDrop.bind(this));
-        
-        // Clothing upload
-        this.clothingUploadArea.addEventListener('click', () => this.clothingFileInput.click());
-        this.clothingFileInput.addEventListener('change', (e) => this.handleClothingFileSelect(e));
-        this.initializeDragAndDrop(this.clothingUploadArea, this.handleClothingDrop.bind(this));
-    }
-    
-    bindCustomizationEvents() {
-        // Avatar style change
-        this.avatarStyle.addEventListener('change', () => this.updateStyleDescription());
-        
-        // Quality mode changes
+        // Quality mode events
         this.qualityModeGroup.addEventListener('change', () => this.updateQualityInfo());
         this.fashionQualityModeGroup.addEventListener('change', () => this.updateQualityInfo());
     }
     
-    bindButtonEvents() {
-        // Generate buttons
-        this.generateAvatarBtn.addEventListener('click', () => this.generateAvatar());
-        this.generateFashionBtn.addEventListener('click', () => this.generateFashionPhoto());
-        
-        // Download buttons
-        this.downloadAvatarBtn.addEventListener('click', () => this.downloadFile('avatar'));
-        this.downloadFashionBtn.addEventListener('click', () => this.downloadFile('fashion'));
-        
-        // Action buttons
-        this.regenerateBtn.addEventListener('click', () => this.regeneratePhoto());
-        this.restartBtn.addEventListener('click', () => this.restartWorkflow());
-    }
-    
-    bindValidationEvents() {
-        // Real-time validation
-        this.selfiesFileInput.addEventListener('change', () => this.validateForm());
-        this.clothingFileInput.addEventListener('change', () => this.validateForm());
-        this.scenePrompt.addEventListener('input', () => this.validateForm());
-    }
-    
-    initializeDragAndDrop(dropZone, onDrop) {
-        dropZone.addEventListener('dragover', (e) => {
+    initializeDragAndDrop() {
+        // Selfies drag and drop
+        this.selfiesUploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
-            dropZone.classList.add('drag-over');
+            this.selfiesUploadArea.classList.add('dragover');
         });
         
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('drag-over');
+        this.selfiesUploadArea.addEventListener('dragleave', () => {
+            this.selfiesUploadArea.classList.remove('dragover');
         });
         
-        dropZone.addEventListener('drop', (e) => {
+        this.selfiesUploadArea.addEventListener('drop', (e) => {
             e.preventDefault();
-            dropZone.classList.remove('drag-over');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                onDrop(files[0]);
-            }
+            this.selfiesUploadArea.classList.remove('dragover');
+            this.handleSelfiesDrop(e.dataTransfer.files);
+        });
+        
+        this.selfiesUploadArea.addEventListener('click', () => {
+            this.selfiesFileInput.click();
+        });
+        
+        // Clothing drag and drop
+        this.clothingUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            this.clothingUploadArea.classList.add('dragover');
+        });
+        
+        this.clothingUploadArea.addEventListener('dragleave', () => {
+            this.clothingUploadArea.classList.remove('dragover');
+        });
+        
+        this.clothingUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            this.clothingUploadArea.classList.remove('dragover');
+            this.handleClothingDrop(e.dataTransfer.files);
+        });
+        
+        this.clothingUploadArea.addEventListener('click', () => {
+            this.clothingFileInput.click();
+        });
+        
+        // Reference pose drag and drop
+        this.referencePoseUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            this.referencePoseUploadArea.classList.add('dragover');
+        });
+        
+        this.referencePoseUploadArea.addEventListener('dragleave', () => {
+            this.referencePoseUploadArea.classList.remove('dragover');
+        });
+        
+        this.referencePoseUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            this.referencePoseUploadArea.classList.remove('dragover');
+            this.handleReferencePoseDrop(e.dataTransfer.files);
+        });
+        
+        this.referencePoseUploadArea.addEventListener('click', () => {
+            this.referencePoseFileInput.click();
         });
     }
     
-    handleSelfiesDrop(file) {
-        if (file.type === 'application/zip' || file.name.endsWith('.zip')) {
-            this.selfiesFileInput.files = new FileList([file]);
-            this.handleSelfiesFileSelect({ target: { files: [file] } });
-        } else {
+    handleSelfiesDrop(files) {
+        if (files.length === 0) return;
+        
+        const file = files[0];
+        if (!file.name.toLowerCase().endsWith('.zip')) {
             this.showStatus('Please upload a ZIP file containing selfies', 'error');
+            return;
         }
+        
+        this.displaySelfiesFileInfo(file);
+        this.validateForm();
     }
     
-    handleClothingDrop(file) {
-        if (file.type.startsWith('image/')) {
-            this.clothingFileInput.files = new FileList([file]);
-            this.handleClothingFileSelect({ target: { files: [file] } });
-        } else {
-            this.showStatus('Please upload an image file', 'error');
-        }
+    handleClothingDrop(files) {
+        if (files.length === 0) return;
+        
+        // Clear existing items
+        this.clothingItems = [];
+        this.clothingItemsGrid.innerHTML = '';
+        
+        // Process each file
+        Array.from(files).forEach((file, index) => {
+            if (!file.type.startsWith('image/')) {
+                this.showStatus(`File ${file.name} is not an image`, 'error');
+                return;
+            }
+            
+            const clothingItem = {
+                file: file,
+                name: file.name.replace(/\.[^/.]+$/, ''),
+                type: 'top',
+                layer: 2
+            };
+            
+            this.clothingItems.push(clothingItem);
+            this.displayClothingItem(clothingItem, index);
+        });
+        
+        this.clothingPreviewContainer.style.display = 'block';
+        this.validateForm();
+        this.checkClothingCompatibility();
     }
     
-    handleSelfiesFileSelect(event) {
-        const file = event.target.files[0];
-        if (file) {
-            this.displaySelfiesFileInfo(file);
-            this.validateForm();
+    handleReferencePoseDrop(files) {
+        if (files.length === 0) return;
+        
+        const file = files[0];
+        if (!file.type.startsWith('image/')) {
+            this.showStatus('Please upload an image file for reference pose', 'error');
+            return;
         }
-    }
-    
-    handleClothingFileSelect(event) {
-        const file = event.target.files[0];
-        if (file) {
-            this.displayClothingFileInfo(file);
-            this.validateForm();
-        }
+        
+        this.displayReferencePoseFileInfo(file);
     }
     
     displaySelfiesFileInfo(file) {
-        this.selfiesFilePreview.style.display = 'block';
         this.selfiesFileName.textContent = file.name;
         this.selfiesFileSize.textContent = this.formatFileSize(file.size);
-        
-        this.selfiesUploadArea.style.display = 'none';
+        this.selfiesFilePreview.style.display = 'block';
     }
     
-    displayClothingFileInfo(file) {
-        this.clothingFilePreview.style.display = 'block';
-        this.clothingFileName.textContent = file.name;
-        this.clothingFileSize.textContent = this.formatFileSize(file.size);
-        
-        // Create preview image
+    displayClothingItem(clothingItem, index) {
         const reader = new FileReader();
         reader.onload = (e) => {
-            this.clothingPreviewImage.src = e.target.result;
+            const card = document.createElement('div');
+            card.className = 'clothing-item-card';
+            card.innerHTML = `
+                <img src="${e.target.result}" alt="${clothingItem.name}" class="clothing-item-image">
+                <div class="clothing-item-info">
+                    <div class="clothing-item-name">${clothingItem.name}</div>
+                    <div class="clothing-item-type">${this.getClothingTypeLabel(clothingItem.type)}</div>
+                    <div class="clothing-item-layer">${this.getClothingLayerLabel(clothingItem.layer)}</div>
+                    <div class="clothing-item-actions">
+                        <button class="edit-btn" onclick="fashionWorkflow.editClothingItem(${index})">Edit</button>
+                        <button class="remove-btn" onclick="fashionWorkflow.removeClothingItem(${index})">Remove</button>
+                    </div>
+                </div>
+            `;
+            this.clothingItemsGrid.appendChild(card);
+        };
+        reader.readAsDataURL(clothingItem.file);
+    }
+    
+    displayReferencePoseFileInfo(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            this.referencePosePreviewImage.src = e.target.result;
+            this.referencePoseFileName.textContent = file.name;
+            this.referencePoseFileSize.textContent = this.formatFileSize(file.size);
+            this.referencePoseFilePreview.style.display = 'block';
         };
         reader.readAsDataURL(file);
-        
-        this.clothingUploadArea.style.display = 'none';
     }
     
-    formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-    
-    loadConfiguration() {
-        // Load fashion styles
-        fetch('/fashion-styles')
-            .then(response => response.json())
-            .then(data => {
-                this.fashionStyles = data.styles;
-                this.updateStyleDescription();
-            })
-            .catch(error => {
-                console.error('Failed to load fashion styles:', error);
-            });
-        
-        // Load quality modes
-        fetch('/fashion-quality-modes')
-            .then(response => response.json())
-            .then(data => {
-                this.qualityModes = data.modes;
-                this.updateQualityInfo();
-            })
-            .catch(error => {
-                console.error('Failed to load quality modes:', error);
-            });
-    }
-    
-    updateStyleDescription() {
-        const selectedStyle = this.avatarStyle.value;
-        const styleConfig = this.fashionStyles?.[selectedStyle];
-        
-        if (styleConfig) {
-            this.styleDescription.textContent = styleConfig.description;
+    editClothingItem(index) {
+        const item = this.clothingItems[index];
+        const newName = prompt('Enter clothing item name:', item.name);
+        if (newName) {
+            item.name = newName;
+            this.refreshClothingItems();
         }
     }
     
-    updateQualityInfo() {
-        // Update quality mode information if needed
-        const selectedMode = this.qualityModeGroup.querySelector('input:checked')?.value;
-        if (selectedMode && this.qualityModes?.[selectedMode]) {
-            // Update any quality-specific UI elements
-        }
+    removeClothingItem(index) {
+        this.clothingItems.splice(index, 1);
+        this.refreshClothingItems();
+        this.validateForm();
+        this.checkClothingCompatibility();
     }
     
-    validateForm() {
-        let isValid = false;
-        
-        if (this.currentStep === 1) {
-            // Validate step 1: selfies upload
-            isValid = this.selfiesFileInput.files.length > 0;
-            this.generateAvatarBtn.disabled = !isValid;
-        } else if (this.currentStep === 2) {
-            // Validate step 2: clothing and scene
-            const hasClothing = this.clothingFileInput.files.length > 0;
-            const hasScenePrompt = this.scenePrompt.value.trim().length > 0;
-            isValid = hasClothing && hasScenePrompt;
-            this.generateFashionBtn.disabled = !isValid;
-        }
-    }
-    
-    generateAvatar() {
-        if (!this.selfiesFileInput.files[0]) {
-            this.showStatus('Please upload a ZIP file with selfies', 'error');
-            return;
-        }
-        
-        const formData = new FormData();
-        formData.append('zip_file', this.selfiesFileInput.files[0]);
-        formData.append('prompt', this.customPrompt.value.trim());
-        formData.append('avatar_style', this.avatarStyle.value);
-        formData.append('quality_mode', this.qualityModeGroup.querySelector('input:checked').value);
-        
-        this.startGeneration('/upload-selfies', formData, 'Avatar generation started...');
-    }
-    
-    generateFashionPhoto() {
-        if (!this.sessionId) {
-            this.showStatus('Please complete step 1 first', 'error');
-            return;
-        }
-        
-        if (!this.clothingFileInput.files[0]) {
-            this.showStatus('Please upload a clothing image', 'error');
-            return;
-        }
-        
-        if (!this.scenePrompt.value.trim()) {
-            this.showStatus('Please provide a scene description', 'error');
-            return;
-        }
-        
-        const formData = new FormData();
-        formData.append('session_id', this.sessionId);
-        formData.append('clothing_image', this.clothingFileInput.files[0]);
-        formData.append('scene_prompt', this.scenePrompt.value.trim());
-        formData.append('quality_mode', this.fashionQualityModeGroup.querySelector('input:checked').value);
-        
-        this.startGeneration('/upload-clothing-scene', formData, 'Fashion photo generation started...');
-    }
-    
-    startGeneration(endpoint, formData, message) {
-        this.showProgress(message);
-        this.updateStepStatus(this.currentStep, 'processing');
-        
-        fetch(endpoint, {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            
-            this.currentJobId = data.job_id;
-            this.sessionId = data.session_id;
-            
-            this.showStatus(data.message, 'success');
-            this.startStatusPolling();
-        })
-        .catch(error => {
-            this.showStatus(`Generation failed: ${error.message}`, 'error');
-            this.updateStepStatus(this.currentStep, 'failed');
-            this.hideProgress();
+    refreshClothingItems() {
+        this.clothingItemsGrid.innerHTML = '';
+        this.clothingItems.forEach((item, index) => {
+            this.displayClothingItem(item, index);
         });
     }
     
-    startStatusPolling() {
-        if (this.pollingInterval) {
-            clearInterval(this.pollingInterval);
+    handlePoseControlChange() {
+        const controlType = this.poseControlType.value;
+        
+        // Hide all pose option content
+        this.referencePoseContent.style.display = 'none';
+        this.presetPoseContent.style.display = 'none';
+        
+        // Show relevant content
+        if (controlType === 'reference') {
+            this.referencePoseContent.style.display = 'block';
+        } else if (controlType === 'preset') {
+            this.presetPoseContent.style.display = 'block';
+        }
+    }
+    
+    handlePosePresetChange() {
+        const presetName = this.posePreset.value;
+        if (presetName && this.posePresets[presetName]) {
+            const preset = this.posePresets[presetName];
+            this.presetDescription.textContent = preset.description;
+            this.presetDescription.style.display = 'block';
+        } else {
+            this.presetDescription.style.display = 'none';
+        }
+    }
+    
+    async loadConfiguration() {
+        try {
+            // Load pose presets
+            const poseResponse = await fetch('/api/pose-presets');
+            if (poseResponse.ok) {
+                const poseData = await poseResponse.json();
+                this.posePresets = poseData.presets;
+                this.populatePosePresets();
+            }
+            
+            // Load clothing types
+            const clothingResponse = await fetch('/api/clothing-types');
+            if (clothingResponse.ok) {
+                const clothingData = await clothingResponse.json();
+                this.clothingTypes = clothingData.clothing_types;
+            }
+            
+        } catch (error) {
+            console.error('Error loading configuration:', error);
+        }
+    }
+    
+    populatePosePresets() {
+        this.posePreset.innerHTML = '<option value="">Select a pose preset...</option>';
+        
+        Object.entries(this.posePresets).forEach(([key, preset]) => {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = preset.description || key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            this.posePreset.appendChild(option);
+        });
+    }
+    
+    getClothingTypeLabel(type) {
+        const typeMap = {
+            'top': 'Top',
+            'bottom': 'Bottom',
+            'dress': 'Dress',
+            'outerwear': 'Outerwear',
+            'accessories': 'Accessories',
+            'shoes': 'Shoes'
+        };
+        return typeMap[type] || type;
+    }
+    
+    getClothingLayerLabel(layer) {
+        const layerMap = {
+            0: 'Underwear',
+            1: 'Bottom',
+            2: 'Top',
+            3: 'Outerwear',
+            4: 'Accessories'
+        };
+        return layerMap[layer] || `Layer ${layer}`;
+    }
+    
+    async checkClothingCompatibility() {
+        if (this.clothingItems.length === 0) {
+            this.compatibilitySection.style.display = 'none';
+            return;
         }
         
-        this.pollingInterval = setInterval(() => {
-            this.checkJobStatus();
+        try {
+            const formData = new FormData();
+            this.clothingItems.forEach((item, index) => {
+                formData.append(`clothing_items[${index}][image_path]`, item.file);
+                formData.append(`clothing_items[${index}][type]`, item.type);
+                formData.append(`clothing_items[${index}][layer]`, item.layer);
+                formData.append(`clothing_items[${index}][name]`, item.name);
+            });
+            
+            const response = await fetch('/api/validate-clothing', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.displayCompatibilityResult(result);
+            }
+        } catch (error) {
+            console.error('Error checking compatibility:', error);
+        }
+    }
+    
+    displayCompatibilityResult(result) {
+        this.compatibilitySection.style.display = 'block';
+        
+        if (result.compatible) {
+            this.compatibilityStatus.className = 'compatibility-status compatible';
+            this.compatibilityStatus.textContent = '✅ All clothing items are compatible';
+        } else {
+            this.compatibilityStatus.className = 'compatibility-status incompatible';
+            this.compatibilityStatus.textContent = '❌ Clothing compatibility issues detected';
+        }
+        
+        if (result.suggestions && result.suggestions.length > 0) {
+            this.compatibilitySuggestions.innerHTML = `
+                <h5>Suggestions:</h5>
+                <ul>
+                    ${result.suggestions.map(suggestion => `<li>${suggestion}</li>`).join('')}
+                </ul>
+            `;
+        } else {
+            this.compatibilitySuggestions.innerHTML = '';
+        }
+    }
+    
+    updateStyleDescription() {
+        const style = this.avatarStyle.value;
+        const descriptions = {
+            'fashion_portrait': 'Professional fashion portrait with clean background',
+            'street_style': 'Casual street style with urban environment',
+            'studio_fashion': 'High-end studio fashion with professional lighting',
+            'editorial': 'Dramatic editorial style with artistic composition'
+        };
+        this.styleDescription.textContent = descriptions[style] || '';
+    }
+    
+    updateQualityInfo() {
+        // Update quality mode information
+        const qualityModes = {
+            'standard': 'Good quality, faster generation (3-5 min)',
+            'high_fidelity': 'Excellent quality, balanced speed (5-8 min)',
+            'ultra_fidelity': 'Maximum quality, slower generation (8-12 min)'
+        };
+        
+        // Update both quality mode groups
+        [this.qualityModeGroup, this.fashionQualityModeGroup].forEach(group => {
+            const selected = group.querySelector('input:checked');
+            if (selected) {
+                const description = selected.closest('.radio-option').querySelector('.radio-description');
+                description.textContent = qualityModes[selected.value] || '';
+            }
+        });
+    }
+    
+    validateForm() {
+        let isValid = true;
+        
+        // Step 1 validation
+        if (this.currentStep === 1) {
+            const hasSelfies = this.selfiesFilePreview.style.display !== 'none';
+            isValid = isValid && hasSelfies;
+        }
+        
+        // Step 2 validation
+        if (this.currentStep === 2) {
+            const hasClothing = this.clothingItems.length > 0;
+            const hasScenePrompt = this.scenePrompt.value.trim().length > 0;
+            isValid = isValid && hasClothing && hasScenePrompt;
+        }
+        
+        // Update button states
+        if (this.currentStep === 1) {
+            this.generateAvatarBtn.disabled = !isValid;
+        } else if (this.currentStep === 2) {
+            this.generateFashionBtn.disabled = !isValid;
+        }
+        
+        return isValid;
+    }
+    
+    async generateAvatar() {
+        if (!this.validateForm()) return;
+        
+        try {
+            this.startGeneration('Generating Digital Twin...');
+            
+            const formData = new FormData();
+            formData.append('selfies_zip', this.selfiesFileInput.files[0]);
+            formData.append('avatar_style', this.avatarStyle.value);
+            formData.append('custom_prompt', this.customPrompt.value);
+            formData.append('quality_mode', this.qualityModeGroup.querySelector('input:checked').value);
+            
+            const response = await fetch('/upload-selfies', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.sessionId = result.session_id;
+                this.avatarJobId = result.job_id;
+                this.startStatusPolling();
+            } else {
+                const error = await response.json();
+                this.handleGenerationFailed(error.error);
+            }
+            
+        } catch (error) {
+            this.handleGenerationFailed(error.message);
+        }
+    }
+    
+    async generateFashionPhoto() {
+        if (!this.validateForm()) return;
+        
+        try {
+            this.startGeneration('Generating Fashion Photo...');
+            
+            const formData = new FormData();
+            formData.append('session_id', this.sessionId);
+            formData.append('scene_prompt', this.scenePrompt.value);
+            formData.append('quality_mode', this.fashionQualityModeGroup.querySelector('input:checked').value);
+            
+            // Add clothing items
+            this.clothingItems.forEach((item, index) => {
+                formData.append(`clothing_files`, item.file);
+                formData.append(`clothing_type_${index}`, item.type);
+                formData.append(`clothing_layer_${index}`, item.layer);
+                formData.append(`clothing_name_${index}`, item.name);
+            });
+            
+            // Add pose control
+            const poseControlType = this.poseControlType.value;
+            if (poseControlType === 'reference' && this.referencePoseFileInput.files[0]) {
+                formData.append('reference_pose_file', this.referencePoseFileInput.files[0]);
+            } else if (poseControlType === 'preset' && this.posePreset.value) {
+                formData.append('pose_preset', this.posePreset.value);
+            }
+            
+            const response = await fetch('/upload-clothing-scene', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.fashionJobId = result.job_id;
+                this.startStatusPolling();
+            } else {
+                const error = await response.json();
+                this.handleGenerationFailed(error.error);
+            }
+            
+        } catch (error) {
+            this.handleGenerationFailed(error.message);
+        }
+    }
+    
+    startGeneration(title) {
+        this.progressTitle.textContent = title;
+        this.progressContainer.style.display = 'block';
+        this.smoothScrollTo(this.progressContainer);
+    }
+    
+    startStatusPolling() {
+        const jobId = this.fashionJobId || this.avatarJobId;
+        if (!jobId) return;
+        
+        const pollInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/status/${jobId}`);
+                if (response.ok) {
+                    const status = await response.json();
+                    this.updateProgress(status);
+                    
+                    if (status.status === 'completed') {
+                        clearInterval(pollInterval);
+                        this.handleGenerationComplete(status);
+                    } else if (status.status === 'failed') {
+                        clearInterval(pollInterval);
+                        this.handleGenerationFailed(status.message);
+                    }
+                }
+            } catch (error) {
+                console.error('Error polling status:', error);
+            }
         }, 2000);
     }
     
-    checkJobStatus() {
-        if (!this.currentJobId) return;
-        
-        fetch(`/status/${this.currentJobId}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                
-                this.updateProgress(data.progress, data.message);
-                
-                if (data.status === 'completed') {
-                    this.handleGenerationComplete(data);
-                } else if (data.status === 'failed') {
-                    this.handleGenerationFailed(data);
-                }
-            })
-            .catch(error => {
-                console.error('Status check failed:', error);
-                this.handleGenerationFailed({ message: error.message });
-            });
+    updateProgress(status) {
+        this.progressFill.style.width = `${status.progress}%`;
+        this.progressMessage.textContent = status.message;
     }
     
-    handleGenerationComplete(data) {
-        clearInterval(this.pollingInterval);
-        this.pollingInterval = null;
-        
-        this.updateStepStatus(this.currentStep, 'completed');
+    handleGenerationComplete(status) {
         this.hideProgress();
         
-        if (this.currentStep === 1) {
-            // Avatar generation completed
-            this.showStatus('Avatar generation completed!', 'success');
+        if (status.type === 'avatar') {
             this.advanceToStep(2);
-        } else if (this.currentStep === 2) {
-            // Fashion photo generation completed
-            this.showStatus('Fashion photo generation completed!', 'success');
+            this.updateStepStatus(1, 'completed');
+        } else if (status.type === 'fashion_photo') {
             this.advanceToStep(3);
-            this.displayResults(data);
+            this.updateStepStatus(2, 'completed');
+            this.displayResults(status.result);
         }
     }
     
-    handleGenerationFailed(data) {
-        clearInterval(this.pollingInterval);
-        this.pollingInterval = null;
-        
-        this.updateStepStatus(this.currentStep, 'failed');
+    handleGenerationFailed(error) {
         this.hideProgress();
-        this.showStatus(`Generation failed: ${data.message}`, 'error');
+        this.showStatus(error, 'error');
     }
     
     advanceToStep(step) {
         this.currentStep = step;
         
-        // Hide current step
-        document.getElementById(`step${step - 1}`).style.display = 'none';
+        // Hide all steps
+        this.step1.style.display = 'none';
+        this.step2.style.display = 'none';
+        this.step3.style.display = 'none';
         
-        // Show next step
-        document.getElementById(`step${step}`).style.display = 'block';
-        
-        // Update step status
-        this.updateStepStatus(step, 'pending');
+        // Show current step
+        if (step === 1) {
+            this.step1.style.display = 'block';
+        } else if (step === 2) {
+            this.step2.style.display = 'block';
+        } else if (step === 3) {
+            this.step3.style.display = 'block';
+        }
     }
     
     updateStepStatus(step, status) {
@@ -414,90 +646,70 @@ class FashionWorkflow {
         }
     }
     
-    displayResults(data) {
+    displayResults(result) {
         this.resultsContainer.style.display = 'block';
         
-        // Update result images (placeholder for now)
-        // In a real implementation, you would load the actual generated images
-        this.avatarResult.src = '/static/images/placeholder.png';
-        this.fashionResult.src = '/static/images/placeholder.png';
+        if (result.avatar_path) {
+            this.avatarResult.src = result.avatar_path;
+        }
+        
+        if (result.fashion_photo_path) {
+            this.fashionResult.src = result.fashion_photo_path;
+        }
     }
     
-    downloadFile(type) {
-        if (!this.currentJobId) {
-            this.showStatus('No file available for download', 'error');
-            return;
-        }
-        
-        // Determine filename based on type
-        let filename = '';
-        if (type === 'avatar') {
-            filename = 'avatar_001.png';
-        } else if (type === 'fashion') {
-            filename = 'fashion_photo_001.png';
-        }
-        
-        if (filename) {
-            const downloadUrl = `/download/${this.currentJobId}/${filename}`;
-            window.open(downloadUrl, '_blank');
+    async downloadFile(type) {
+        try {
+            const response = await fetch(`/download/${type}/${this.sessionId}`);
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${type}_result.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }
+        } catch (error) {
+            this.showStatus('Download failed', 'error');
         }
     }
     
     regeneratePhoto() {
-        // Go back to step 2 to regenerate fashion photo
-        this.currentStep = 2;
-        this.step1.style.display = 'none';
-        this.step2.style.display = 'block';
-        this.step3.style.display = 'none';
-        this.resultsContainer.style.display = 'none';
+        this.advanceToStep(2);
+        this.updateStepStatus(3, 'pending');
     }
     
     restartWorkflow() {
-        // Reset everything and go back to step 1
         this.currentStep = 1;
         this.sessionId = null;
-        this.currentJobId = null;
+        this.avatarJobId = null;
+        this.fashionJobId = null;
+        this.clothingItems = [];
         
-        // Reset file inputs
-        this.selfiesFileInput.value = '';
-        this.clothingFileInput.value = '';
+        // Reset UI
+        this.step1.style.display = 'block';
+        this.step2.style.display = 'none';
+        this.step3.style.display = 'none';
+        this.resultsContainer.style.display = 'none';
         
-        // Reset previews
+        // Reset form elements
         this.selfiesFilePreview.style.display = 'none';
-        this.clothingFilePreview.style.display = 'none';
-        this.selfiesUploadArea.style.display = 'block';
-        this.clothingUploadArea.style.display = 'block';
+        this.clothingPreviewContainer.style.display = 'none';
+        this.compatibilitySection.style.display = 'none';
         
-        // Reset forms
-        this.customPrompt.value = '';
-        this.scenePrompt.value = '';
-        
-        // Reset step statuses
+        // Reset status
         this.updateStepStatus(1, 'pending');
         this.updateStepStatus(2, 'pending');
         this.updateStepStatus(3, 'pending');
         
-        // Show step 1
-        this.step1.style.display = 'block';
-        this.step2.style.display = 'none';
-        this.step3.style.display = 'none';
-        
-        // Validate form
         this.validateForm();
-        
-        this.showStatus('Workflow restarted', 'success');
     }
     
-    showProgress(message) {
+    showProgress() {
         this.progressContainer.style.display = 'block';
-        this.progressTitle.textContent = 'Processing...';
-        this.progressMessage.textContent = message;
-        this.progressFill.style.width = '0%';
-    }
-    
-    updateProgress(progress, message) {
-        this.progressFill.style.width = `${progress}%`;
-        this.progressMessage.textContent = message;
     }
     
     hideProgress() {
@@ -509,50 +721,26 @@ class FashionWorkflow {
         this.statusMessage.className = `status-message ${type}`;
         this.statusMessage.style.display = 'block';
         
-        // Auto-hide after 5 seconds
         setTimeout(() => {
             this.statusMessage.style.display = 'none';
         }, 5000);
     }
     
     smoothScrollTo(element) {
-        element.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start'
-        });
-    }
-}
-
-// Utility function for FileList (not available in all browsers)
-class FileList {
-    constructor(files) {
-        this.files = files;
-        this.length = files.length;
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
     
-    item(index) {
-        return this.files[index];
-    }
-    
-    [Symbol.iterator]() {
-        return this.files[Symbol.iterator]();
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 }
 
-// Debounce utility
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-// Initialize when DOM is loaded
+// Initialize the fashion workflow when the page loads
+let fashionWorkflow;
 document.addEventListener('DOMContentLoaded', () => {
-    window.fashionWorkflow = new FashionWorkflow();
+    fashionWorkflow = new FashionWorkflow();
 }); 

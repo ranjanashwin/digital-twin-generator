@@ -45,6 +45,10 @@ CORS(app)
 jobs = {}
 job_lock = threading.Lock()
 
+# Global variable for session tracking
+sessions = {}
+session_lock = threading.Lock()
+
 # Initialize validation and resource management
 image_validator = ImageValidator()
 resource_manager = ResourceManager()
@@ -128,10 +132,10 @@ FASHION_QUALITY_MODES = {
     }
 }
 
-def allowed_file(filename):
+def allowed_file(filename, allowed_extensions: set):
     """Check if file extension is allowed"""
     return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in {ext[1:] for ext in WEB_CONFIG["allowed_extensions"]}
+           filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
 def create_session_id():
     """Create unique session ID with timestamp"""
@@ -422,6 +426,93 @@ def generate_fashion_photo_worker(session_id: str, job_id: str, session_dir: Pat
         except:
             pass
 
+def generate_fashion_photo_job(job_id: str, session_id: str, job_data: Dict[str, Any]):
+    """Generate fashion photo with advanced pose control and multiple clothing items"""
+    try:
+        session = sessions[session_id]
+        data = job_data['data']
+        
+        # Update job status
+        jobs[job_id]['status'] = 'processing'
+        jobs[job_id]['progress'] = 10
+        jobs[job_id]['message'] = 'Loading models and processing clothing...'
+        
+        # Initialize processors
+        controlnet_processor = ControlNetProcessor()
+        viton_processor = VitonHDProcessor()
+        
+        # Load models
+        controlnet_processor.load_models()
+        viton_processor.load_models()
+        
+        jobs[job_id]['progress'] = 30
+        jobs[job_id]['message'] = 'Creating pose conditioning...'
+        
+        # Create pose conditioning with advanced control
+        pose_conditioning = controlnet_processor.create_pose_conditioning(
+            avatar_path=data['avatar_path'],
+            clothing_path=data['clothing_items'][0]['image_path'],  # Use first clothing for pose
+            reference_pose_path=data.get('reference_pose_path'),
+            pose_preset=data.get('pose_preset')
+        )
+        
+        jobs[job_id]['progress'] = 50
+        jobs[job_id]['message'] = 'Processing multiple clothing items...'
+        
+        # Process multiple clothing items
+        processed_clothing_paths = viton_processor.process_multiple_clothing(data['clothing_items'])
+        
+        jobs[job_id]['progress'] = 70
+        jobs[job_id]['message'] = 'Generating virtual try-on...'
+        
+        # Generate virtual try-on with multiple clothing items
+        tryon_result = viton_processor.generate_virtual_tryon_multiple(
+            person_image=data['avatar_path'],
+            clothing_items=data['clothing_items'],
+            pose_data=pose_conditioning.get('pose_data')
+        )
+        
+        jobs[job_id]['progress'] = 85
+        jobs[job_id]['message'] = 'Generating final fashion photo...'
+        
+        # Generate final fashion photo
+        output_dir = session['output_dir']
+        fashion_photo_path = controlnet_processor.generate_fashion_photo(
+            avatar_path=data['avatar_path'],
+            clothing_path=tryon_result,  # Use try-on result as clothing
+            scene_prompt=data['scene_prompt'],
+            pose_conditioning=pose_conditioning,
+            output_path=output_dir,
+            quality_mode=data['quality_mode']
+        )
+        
+        # Save session data
+        session['fashion_photo_path'] = fashion_photo_path
+        session['clothing_items'] = data['clothing_items']
+        session['scene_prompt'] = data['scene_prompt']
+        session['pose_conditioning'] = pose_conditioning
+        session['reference_pose_path'] = data.get('reference_pose_path')
+        session['pose_preset'] = data.get('pose_preset')
+        
+        # Update job status
+        jobs[job_id]['status'] = 'completed'
+        jobs[job_id]['progress'] = 100
+        jobs[job_id]['message'] = 'Fashion photo generated successfully!'
+        jobs[job_id]['result'] = {
+            'fashion_photo_path': fashion_photo_path,
+            'clothing_items': data['clothing_items'],
+            'scene_prompt': data['scene_prompt'],
+            'compatibility_result': data['compatibility_result'],
+            'suggestions': data['suggestions']
+        }
+        
+        logger.info(f"Fashion photo generation completed: {job_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in generate_fashion_photo_job: {e}")
+        jobs[job_id]['status'] = 'failed'
+        jobs[job_id]['message'] = f'Error: {str(e)}'
+
 @app.route('/')
 def index():
     """Main page - Fashion workflow"""
@@ -527,77 +618,137 @@ def upload_selfies():
 
 @app.route('/upload-clothing-scene', methods=['POST'])
 def upload_clothing_scene():
-    """Step 2: Handle clothing upload and scene prompt"""
+    """Upload clothing and scene description for fashion photo generation"""
     try:
+        # Get session ID
         session_id = request.form.get('session_id')
-        if not session_id:
-            return jsonify({'error': 'Session ID required'}), 400
+        if not session_id or session_id not in sessions:
+            return jsonify({'error': 'Invalid session ID'}), 400
         
-        session_dir = OUTPUT_DIR / session_id
-        if not session_dir.exists():
-            return jsonify({'error': 'Session not found'}), 400
+        session = sessions[session_id]
         
-        # Check if avatar generation is complete
-        avatar_dir = session_dir / "avatar_output"
-        if not avatar_dir.exists() or not list(avatar_dir.glob("*.png")):
-            return jsonify({'error': 'Avatar generation not complete. Please complete step 1 first.'}), 400
+        # Check if avatar is ready
+        if not session.get('avatar_path'):
+            return jsonify({'error': 'Avatar not ready. Please generate avatar first.'}), 400
         
-        # Get clothing image
-        clothing_image = request.files.get('clothing_image')
-        scene_prompt = request.form.get('scene_prompt', '').strip()
+        # Get clothing files (multiple files supported)
+        clothing_files = request.files.getlist('clothing_files')
+        if not clothing_files:
+            return jsonify({'error': 'No clothing files provided'}), 400
+        
+        # Get reference pose file (optional)
+        reference_pose_file = request.files.get('reference_pose_file')
+        pose_preset = request.form.get('pose_preset')  # Optional preset pose
+        
+        # Get scene prompt
+        scene_prompt = request.form.get('scene_prompt', '')
+        if not scene_prompt:
+            return jsonify({'error': 'Scene prompt is required'}), 400
+        
+        # Get quality mode
         quality_mode = request.form.get('quality_mode', 'high_fidelity')
         
-        if not clothing_image or clothing_image.filename == '':
-            return jsonify({'error': 'Please upload a clothing image'}), 400
+        # Save clothing files
+        clothing_paths = []
+        clothing_items = []
         
-        if not scene_prompt:
-            return jsonify({'error': 'Please provide a scene description'}), 400
+        for i, file in enumerate(clothing_files):
+            if file and file.filename:
+                # Validate file type
+                if not allowed_file(file.filename, {'png', 'jpg', 'jpeg', 'webp'}):
+                    return jsonify({'error': f'Invalid file type for clothing {i+1}'}), 400
+                
+                # Save clothing file
+                filename = secure_filename(f"clothing_{i+1}_{int(time.time())}_{file.filename}")
+                clothing_path = os.path.join(session['output_dir'], filename)
+                file.save(clothing_path)
+                clothing_paths.append(clothing_path)
+                
+                # Create clothing item data
+                clothing_item = {
+                    'image_path': clothing_path,
+                    'type': request.form.get(f'clothing_type_{i}', 'top'),
+                    'layer': int(request.form.get(f'clothing_layer_{i}', 2)),
+                    'name': request.form.get(f'clothing_name_{i}', f'Clothing {i+1}')
+                }
+                clothing_items.append(clothing_item)
         
-        # Save clothing image
-        clothing_path = save_clothing_image(clothing_image, session_dir)
+        # Save reference pose file if provided
+        reference_pose_path = None
+        if reference_pose_file and reference_pose_file.filename:
+            if not allowed_file(reference_pose_file.filename, {'png', 'jpg', 'jpeg', 'webp'}):
+                return jsonify({'error': 'Invalid file type for reference pose'}), 400
+            
+            filename = secure_filename(f"reference_pose_{int(time.time())}_{reference_pose_file.filename}")
+            reference_pose_path = os.path.join(session['output_dir'], filename)
+            reference_pose_file.save(reference_pose_path)
         
-        # Save scene prompt
-        save_prompt_text(scene_prompt, session_dir)
+        # Validate clothing compatibility
+        viton_processor = VitonHDProcessor()
+        compatibility_result = viton_processor.validate_clothing_compatibility(clothing_items)
+        
+        if not compatibility_result['compatible']:
+            conflicts = compatibility_result.get('conflicts', [])
+            layer_conflicts = compatibility_result.get('layer_conflicts', [])
+            
+            error_messages = []
+            for conflict in conflicts:
+                error_messages.append(f"{conflict['item1']} and {conflict['item2']}: {conflict['reason']}")
+            for conflict in layer_conflicts:
+                error_messages.append(f"Layer conflict: {conflict['reason']}")
+            
+            return jsonify({
+                'error': 'Clothing compatibility issues',
+                'details': error_messages
+            }), 400
+        
+        # Get clothing suggestions
+        suggestions = viton_processor.get_clothing_suggestions(clothing_items)
         
         # Create job for fashion photo generation
-        job_id = create_job_id()
+        job_id = f"fashion_{session_id}_{int(time.time())}"
         
-        # Register job
-        with job_lock:
-            jobs[job_id] = {
-                'id': job_id,
-                'session_id': session_id,
-                'status': 'validated',
-                'progress': 20,
-                'message': 'Clothing and scene uploaded. Starting fashion photo generation...',
-                'created_at': time.time(),
-                'updated_at': time.time(),
-                'clothing_path': clothing_path,
+        job_data = {
+            'type': 'fashion_photo',
+            'status': 'pending',
+            'progress': 0,
+            'message': 'Initializing fashion photo generation...',
+            'data': {
+                'avatar_path': session['avatar_path'],
+                'clothing_items': clothing_items,
                 'scene_prompt': scene_prompt,
                 'quality_mode': quality_mode,
-                'workflow_step': 'step2'
-            }
+                'reference_pose_path': reference_pose_path,
+                'pose_preset': pose_preset,
+                'compatibility_result': compatibility_result,
+                'suggestions': suggestions
+            },
+            'created_at': time.time()
+        }
         
-        # Start fashion photo generation
+        jobs[job_id] = job_data
+        
+        # Start fashion photo generation in background
         thread = threading.Thread(
-            target=generate_fashion_photo_worker,
-            args=[session_id, job_id, session_dir, clothing_path, scene_prompt, quality_mode]
+            target=generate_fashion_photo_job,
+            args=(job_id, session_id, job_data)
         )
         thread.daemon = True
         thread.start()
         
+        logger.info(f"Started fashion photo generation job: {job_id}")
+        
         return jsonify({
+            'success': True,
             'job_id': job_id,
-            'session_id': session_id,
-            'message': 'Clothing and scene uploaded. Fashion photo generation started.',
-            'status': 'validated',
-            'next_step': 'step3'
+            'message': 'Fashion photo generation started',
+            'compatibility_result': compatibility_result,
+            'suggestions': suggestions
         })
         
     except Exception as e:
-        logger.error(f"Clothing upload failed: {e}")
-        logger.error(traceback.format_exc())
-        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+        logger.error(f"Error in upload_clothing_scene: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/status/<job_id>')
 def get_job_status(job_id):
@@ -736,6 +887,53 @@ def get_fashion_styles():
 def get_fashion_quality_modes():
     """Get available fashion quality modes"""
     return jsonify({'modes': FASHION_QUALITY_MODES})
+
+@app.route('/api/pose-presets', methods=['GET'])
+def get_pose_presets():
+    """Get available pose presets for advanced pose control"""
+    try:
+        controlnet_processor = ControlNetProcessor()
+        presets = controlnet_processor.get_available_pose_presets()
+        
+        return jsonify({
+            'success': True,
+            'presets': presets
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting pose presets: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/clothing-types', methods=['GET'])
+def get_clothing_types():
+    """Get available clothing types and layers for multiple clothing items"""
+    try:
+        clothing_types = {
+            'types': [
+                {'value': 'top', 'label': 'Top (Shirt, Blouse, etc.)'},
+                {'value': 'bottom', 'label': 'Bottom (Pants, Skirt, etc.)'},
+                {'value': 'dress', 'label': 'Dress'},
+                {'value': 'outerwear', 'label': 'Outerwear (Jacket, Coat, etc.)'},
+                {'value': 'accessories', 'label': 'Accessories (Hat, Scarf, etc.)'},
+                {'value': 'shoes', 'label': 'Shoes'}
+            ],
+            'layers': [
+                {'value': 0, 'label': 'Underwear'},
+                {'value': 1, 'label': 'Bottom'},
+                {'value': 2, 'label': 'Top'},
+                {'value': 3, 'label': 'Outerwear'},
+                {'value': 4, 'label': 'Accessories'}
+            ]
+        }
+        
+        return jsonify({
+            'success': True,
+            'clothing_types': clothing_types
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting clothing types: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/health')
 def health_check():

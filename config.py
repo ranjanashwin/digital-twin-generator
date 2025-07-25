@@ -85,6 +85,18 @@ PROMPT_TEMPLATES = {
     "portrait": "a high-quality photorealistic portrait of the person, centered, realistic lighting, studio quality, DSLR shot, soft shadows, sharp features, professional photography",
     "casual": "a natural, candid photo of the person, good lighting, sharp focus, realistic skin texture",
     "professional": "a professional headshot of the person, studio lighting, clean background, business attire, high resolution",
+    "fashion_portrait": "a high-quality fashion portrait of the person, studio lighting, clean background, professional photography, sharp features, magazine quality",
+    "street_style": "a street style fashion photo of the person, urban background, natural lighting, candid pose, fashion photography",
+    "studio_portrait": "a studio portrait of the person, professional lighting setup, clean background, high resolution, sharp details",
+    "editorial": "an editorial fashion photo of the person, artistic lighting, creative composition, magazine quality, professional photography",
+    "lifestyle": "a lifestyle photo of the person, natural environment, good lighting, candid moment, realistic photography",
+    "headshot": "a professional headshot of the person, studio lighting, neutral background, business attire, high quality",
+    "glamour": "a glamour portrait of the person, dramatic lighting, elegant pose, professional photography, high resolution",
+    "documentary": "a documentary style photo of the person, natural lighting, candid moment, realistic photography",
+    "artistic": "an artistic portrait of the person, creative lighting, artistic composition, professional photography",
+    "vintage": "a vintage style portrait of the person, retro lighting, classic pose, film photography aesthetic",
+    "modern": "a modern portrait of the person, contemporary lighting, clean composition, professional photography",
+    "classic": "a classic portrait of the person, traditional lighting, timeless pose, professional photography"
 }
 
 # Negative prompts

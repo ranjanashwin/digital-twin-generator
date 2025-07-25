@@ -348,10 +348,27 @@ def generate_avatar_worker(session_id: str, job_id: str, session_dir: Path,
         
         logger.info(f"Found {len(image_paths)} files in selfies directory")
         
-        # Filter for valid image files
-        valid_image_paths = [p for p in image_paths if allowed_file(Path(p).name, {'png', 'jpg', 'jpeg', 'webp'})]
+        # Filter for valid image files and exclude system files
+        valid_image_paths = []
+        for p in image_paths:
+            path_obj = Path(p)
+            # Skip macOS metadata files
+            if '__MACOSX' in str(path_obj) or path_obj.name.startswith('._'):
+                logger.info(f"Skipping macOS metadata file: {path_obj.name}")
+                continue
+            # Skip hidden files
+            if path_obj.name.startswith('.'):
+                logger.info(f"Skipping hidden file: {path_obj.name}")
+                continue
+            # Skip system files
+            if path_obj.name.lower() in ['thumbs.db', '.ds_store', 'desktop.ini']:
+                logger.info(f"Skipping system file: {path_obj.name}")
+                continue
+            # Check if it's a valid image file
+            if allowed_file(path_obj.name, {'png', 'jpg', 'jpeg', 'webp'}):
+                valid_image_paths.append(p)
         
-        logger.info(f"Found {len(valid_image_paths)} valid image files")
+        logger.info(f"Found {len(valid_image_paths)} valid image files (filtered from {len(image_paths)} total)")
         
         if len(valid_image_paths) < 15:
             raise ValueError(f"Insufficient images. Found {len(valid_image_paths)} valid images, minimum 15 required.")
@@ -687,11 +704,28 @@ def upload_selfies():
                 extracted_images = list(extract_dir.glob("*"))
                 extracted_images = [f for f in extracted_images if f.is_file() and allowed_file(f.name, {'png', 'jpg', 'jpeg', 'webp'})]
                 
-                logger.info(f"Extracted {len(extracted_images)} image files")
+                # Filter out macOS metadata files and other system files
+                filtered_images = []
+                for img_path in extracted_images:
+                    # Skip macOS metadata files
+                    if '__MACOSX' in str(img_path) or img_path.name.startswith('._'):
+                        logger.info(f"Skipping macOS metadata file: {img_path.name}")
+                        continue
+                    # Skip hidden files
+                    if img_path.name.startswith('.'):
+                        logger.info(f"Skipping hidden file: {img_path.name}")
+                        continue
+                    # Skip system files
+                    if img_path.name.lower() in ['thumbs.db', '.ds_store', 'desktop.ini']:
+                        logger.info(f"Skipping system file: {img_path.name}")
+                        continue
+                    filtered_images.append(img_path)
                 
-                if len(extracted_images) < 15:
-                    logger.error(f"Failed to extract enough images: {len(extracted_images)}")
-                    return jsonify({'error': f'Failed to extract enough images. Found: {len(extracted_images)}'}), 400
+                logger.info(f"Extracted {len(filtered_images)} valid image files (filtered from {len(extracted_images)} total)")
+                
+                if len(filtered_images) < 15:
+                    logger.error(f"Failed to extract enough images: {len(filtered_images)}")
+                    return jsonify({'error': f'Failed to extract enough valid images. Found: {len(filtered_images)} (minimum 15 required)'}), 400
                 
         except zipfile.BadZipFile:
             logger.error("Invalid ZIP file format")

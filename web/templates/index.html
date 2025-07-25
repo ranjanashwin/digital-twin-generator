@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photorealistic Avatar Generator</title>
+    <meta name="description" content="Generate photorealistic avatars using AI. Upload 15+ selfies and get a high-quality digital twin.">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/styles.css">
+    
+    <!-- Preload critical resources -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Photorealistic Avatar Generator</h1>
+            <p>Upload 15+ selfies and create your AI-powered digital twin with stunning realism</p>
+        </header>
+
+        <!-- Main Card -->
+        <main class="main-card">
+            <!-- Upload Section -->
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Click to upload or drag & drop</div>
+                <div class="upload-hint">ZIP file containing 15+ selfies (JPG, PNG, WEBP)</div>
+                
+                <!-- File Requirements -->
+                <div class="upload-requirements">
+                    <h4>📋 Requirements:</h4>
+                    <ul>
+                        <li>Minimum 15 selfies of the same person</li>
+                        <li>Clear, front-facing photos with good lighting</li>
+                        <li>High resolution images (1024x1024 or larger)</li>
+                        <li>Varied expressions and angles for best results</li>
+                    </ul>
+                </div>
+                
+                <input type="file" id="fileInput" class="file-input" accept=".zip">
+            </div>
+
+            <!-- File Preview -->
+            <div class="file-preview hidden" id="filePreview">
+                <h4>Selected File:</h4>
+                <div class="file-info" id="fileInfo"></div>
+            </div>
+
+            <!-- Generation Options -->
+            <div class="options">
+                <div class="option-group">
+                    <label for="promptStyle">Avatar Style:</label>
+                    <select id="promptStyle">
+                        <option value="portrait">Professional Portrait</option>
+                        <option value="casual">Casual Photo</option>
+                        <option value="professional">Business Headshot</option>
+                    </select>
+                </div>
+                <div class="option-group">
+                    <label for="qualityMode">Quality Mode:</label>
+                    <select id="qualityMode">
+                        <option value="fast">⚡ Fast (2-3 min)</option>
+                        <option value="high_fidelity" selected>🎨 High Fidelity (5-8 min)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Generate Button -->
+            <button class="generate-btn" id="generateBtn" disabled>
+                <div class="btn-content">
+                    <span>🎨</span>
+                    <span>Generate Avatar</span>
+                </div>
+            </button>
+
+            <!-- Progress Section -->
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Preparing...</div>
+            </div>
+
+            <!-- Result Section -->
+            <div class="result-container" id="resultContainer">
+                <!-- Selfie Preview Strip -->
+                <div class="selfie-strip-container">
+                    <h4>📸 Your Selfies</h4>
+                    <div class="selfie-strip" id="selfieStrip">
+                        <!-- Selfies will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Avatar Comparison -->
+                <div class="avatar-comparison">
+                    <h4>🎨 Generated Avatar</h4>
+                    
+                    <!-- Before/After Slider -->
+                    <div class="comparison-slider-container">
+                        <div class="comparison-slider" id="comparisonSlider">
+                            <div class="comparison-before">
+                                <img id="beforeImage" class="comparison-image" alt="Original Selfie">
+                                <div class="comparison-label">Original</div>
+                            </div>
+                            <div class="comparison-after">
+                                <img id="afterImage" class="comparison-image" alt="Generated Avatar">
+                                <div class="comparison-label">Generated</div>
+                            </div>
+                            <div class="slider-handle" id="sliderHandle">
+                                <div class="slider-line"></div>
+                                <div class="slider-circle">⋮⋮</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Side-by-Side View Toggle -->
+                    <div class="view-toggle">
+                        <button class="toggle-btn active" data-view="slider">Before/After Slider</button>
+                        <button class="toggle-btn" data-view="side-by-side">Side by Side</button>
+                    </div>
+                </div>
+
+                <!-- Download Section -->
+                <div class="download-section">
+                    <button class="download-btn" id="downloadBtn">
+                        <div class="btn-content">
+                            <span class="btn-icon">⬇️</span>
+                            <span class="btn-text">Download Avatar</span>
+                        </div>
+                        <div class="btn-loading hidden">
+                            <div class="loading-spinner"></div>
+                            <span>Preparing download...</span>
+                        </div>
+                    </button>
+                    
+                    <div class="download-info">
+                        <span class="file-info">High resolution PNG • 1024x1024</span>
+                        <span class="quality-info" id="qualityInfo">High Fidelity Mode</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Messages -->
+            <div id="statusContainer"></div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Powered by <span class="brand">SDXL + IPAdapter</span> • AI-Powered Avatar Generation</p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/script.js"></script>
+    
+    <!-- Additional meta tags for social sharing -->
+    <meta property="og:title" content="Photorealistic Avatar Generator">
+    <meta property="og:description" content="Generate photorealistic avatars using AI. Upload 15+ selfies and get a high-quality digital twin.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 630'><rect width='1200' height='630' fill='%236676ea'/><text x='600' y='315' font-family='Arial' font-size='48' fill='white' text-anchor='middle'>🤖 Avatar Generator</text></svg>">
+    
+    <!-- Structured data for SEO -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Photorealistic Avatar Generator",
+        "description": "Generate photorealistic avatars using AI technology",
+        "url": "https://your-domain.com",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web Browser",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        }
+    }
+    </script>
+</body>
+</html> 

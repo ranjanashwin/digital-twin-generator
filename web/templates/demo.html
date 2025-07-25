@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avatar Generator Demo</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Photorealistic Avatar Generator</h1>
+            <p>Upload 15+ selfies and create your AI-powered digital twin with stunning realism</p>
+        </header>
+
+        <!-- Main Card -->
+        <main class="main-card">
+            <!-- Demo Notice -->
+            <div class="status info">
+                <span>ℹ️</span>
+                <span>This is a demo interface. The backend processing is simulated.</span>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Click to upload or drag & drop</div>
+                <div class="upload-hint">ZIP file containing 15+ selfies (JPG, PNG, WEBP)</div>
+                
+                <!-- File Requirements -->
+                <div class="upload-requirements">
+                    <h4>📋 Requirements:</h4>
+                    <ul>
+                        <li>Minimum 15 selfies of the same person</li>
+                        <li>Clear, front-facing photos with good lighting</li>
+                        <li>High resolution images (1024x1024 or larger)</li>
+                        <li>Varied expressions and angles for best results</li>
+                    </ul>
+                </div>
+                
+                <input type="file" id="fileInput" class="file-input" accept=".zip">
+            </div>
+
+            <!-- File Preview -->
+            <div class="file-preview hidden" id="filePreview">
+                <h4>Selected File:</h4>
+                <div class="file-info" id="fileInfo"></div>
+            </div>
+
+            <!-- Generation Options -->
+            <div class="options">
+                <div class="option-group">
+                    <label for="promptStyle">Avatar Style:</label>
+                    <select id="promptStyle">
+                        <option value="portrait">Professional Portrait</option>
+                        <option value="casual">Casual Photo</option>
+                        <option value="professional">Business Headshot</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Generate Button -->
+            <button class="generate-btn" id="generateBtn" disabled>
+                <div class="btn-content">
+                    <span>🎨</span>
+                    <span>Generate Avatar</span>
+                </div>
+            </button>
+
+            <!-- Progress Section -->
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Preparing...</div>
+            </div>
+
+            <!-- Result Section -->
+            <div class="result-container" id="resultContainer">
+                <!-- Selfie Preview Strip -->
+                <div class="selfie-strip-container">
+                    <h4>📸 Your Selfies</h4>
+                    <div class="selfie-strip" id="selfieStrip">
+                        <!-- Selfies will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Avatar Comparison -->
+                <div class="avatar-comparison">
+                    <h4>🎨 Generated Avatar</h4>
+                    
+                    <!-- Before/After Slider -->
+                    <div class="comparison-slider-container">
+                        <div class="comparison-slider" id="comparisonSlider">
+                            <div class="comparison-before">
+                                <img id="beforeImage" class="comparison-image" alt="Original Selfie">
+                                <div class="comparison-label">Original</div>
+                            </div>
+                            <div class="comparison-after">
+                                <img id="afterImage" class="comparison-image" alt="Generated Avatar">
+                                <div class="comparison-label">Generated</div>
+                            </div>
+                            <div class="slider-handle" id="sliderHandle">
+                                <div class="slider-line"></div>
+                                <div class="slider-circle">⋮⋮</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Side-by-Side View Toggle -->
+                    <div class="view-toggle">
+                        <button class="toggle-btn active" data-view="slider">Before/After Slider</button>
+                        <button class="toggle-btn" data-view="side-by-side">Side by Side</button>
+                    </div>
+                </div>
+
+                <!-- Download Section -->
+                <div class="download-section">
+                    <button class="download-btn" id="downloadBtn">
+                        <div class="btn-content">
+                            <span class="btn-icon">⬇️</span>
+                            <span class="btn-text">Download Avatar</span>
+                        </div>
+                        <div class="btn-loading hidden">
+                            <div class="loading-spinner"></div>
+                            <span>Preparing download...</span>
+                        </div>
+                    </button>
+                    
+                    <div class="download-info">
+                        <span class="file-info">High resolution PNG • 1024x1024</span>
+                        <span class="quality-info" id="qualityInfo">High Fidelity Mode</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Messages -->
+            <div id="statusContainer"></div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Powered by <span class="brand">SDXL + IPAdapter</span> • AI-Powered Avatar Generation</p>
+        </footer>
+    </div>
+
+    <!-- Demo Script -->
+    <script>
+        // Demo functionality
+        document.addEventListener('DOMContentLoaded', () => {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            const generateBtn = document.getElementById('generateBtn');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            const resultContainer = document.getElementById('resultContainer');
+            const resultImage = document.getElementById('resultImage');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const statusContainer = document.getElementById('statusContainer');
+            const filePreview = document.getElementById('filePreview');
+            const fileInfo = document.getElementById('fileInfo');
+
+            // File selection
+            uploadArea.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    showFilePreview(file);
+                    enableGenerateButton();
+                    showStatus('File selected successfully! Ready to generate avatar.', 'success');
+                }
+            });
+
+            // Drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    fileInput.files = files;
+                    const file = files[0];
+                    showFilePreview(file);
+                    enableGenerateButton();
+                    showStatus('File selected successfully! Ready to generate avatar.', 'success');
+                }
+            });
+
+            function showFilePreview(file) {
+                const fileSize = formatFileSize(file.size);
+                fileInfo.innerHTML = `
+                    <span class="file-icon">📁</span>
+                    <span>${file.name}</span>
+                    <span>(${fileSize})</span>
+                `;
+                filePreview.classList.remove('hidden');
+                filePreview.classList.add('fade-in');
+            }
+
+            function formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+
+            function enableGenerateButton() {
+                generateBtn.disabled = false;
+                generateBtn.querySelector('.btn-content').innerHTML = `
+                    <span>🎨</span>
+                    <span>Generate Avatar</span>
+                `;
+            }
+
+            function disableGenerateButton() {
+                generateBtn.disabled = true;
+                generateBtn.querySelector('.btn-content').innerHTML = `
+                    <span class="spinner"></span>
+                    <span>Processing...</span>
+                `;
+            }
+
+            function showStatus(message, type = 'info') {
+                const existingStatus = statusContainer.querySelector('.status');
+                if (existingStatus) {
+                    existingStatus.remove();
+                }
+
+                const statusDiv = document.createElement('div');
+                statusDiv.className = `status ${type}`;
+                
+                const icon = getStatusIcon(type);
+                statusDiv.innerHTML = `
+                    <span>${icon}</span>
+                    <span>${message}</span>
+                `;
+                
+                statusContainer.appendChild(statusDiv);
+                statusDiv.classList.add('fade-in');
+            }
+
+            function getStatusIcon(type) {
+                const icons = {
+                    success: '✅',
+                    error: '❌',
+                    warning: '⚠️',
+                    info: 'ℹ️'
+                };
+                return icons[type] || icons.info;
+            }
+
+            function showProgress() {
+                progressContainer.style.display = 'block';
+                progressContainer.classList.add('fade-in');
+            }
+
+            function hideProgress() {
+                progressContainer.style.display = 'none';
+            }
+
+            function updateProgress(progress, message) {
+                progressFill.style.width = `${progress}%`;
+                progressText.textContent = message || `Processing... ${progress}%`;
+            }
+
+            function showResult() {
+                const afterImage = document.getElementById('afterImage');
+                const downloadBtn = document.getElementById('downloadBtn');
+                const selfieStrip = document.getElementById('selfieStrip');
+                const comparisonSlider = document.getElementById('comparisonSlider');
+                const qualityInfo = document.getElementById('qualityInfo');
+                
+                // Show result container with animation
+                resultContainer.style.display = 'block';
+                resultContainer.classList.add('show');
+                
+                // Demo result image
+                afterImage.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiB2aWV3Qm94PSIwIDAgMTAyNCAxMDI0IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiBmaWxsPSJ1cmwoI2dyYWRpZW50KSIvPgo8ZGVmcz4KPGxpbmVhckdyYWRpZW50IGlkPSJncmFkaWVudCIgeDE9IjAiIHkxPSIwIiB4Mj0iMTAyNCIgeTI9IjEwMjQiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzY2N2VlYSIvPgo8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiM3NjRiYTIiLz4KPC9saW5lYXJHcmFkaWVudD4KPC9kZWZzPgo8dGV4dCB4PSI1MTIiIHk9IjUxMiIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkF2YXRhciBHZW5lcmF0ZWQ8L3RleHQ+Cjwvc3ZnPgo=';
+                afterImage.alt = 'Generated Avatar';
+                
+                afterImage.onload = () => {
+                    comparisonSlider.classList.add('show');
+                };
+                
+                // Set download link
+                downloadBtn.setAttribute('data-download', '#');
+                downloadBtn.setAttribute('data-filename', 'demo_avatar.png');
+                
+                // Update quality info
+                const qualityMode = document.getElementById('qualityMode').value;
+                const qualityText = qualityMode === 'fast' ? 'Fast Mode' : 'High Fidelity Mode';
+                qualityInfo.textContent = qualityText;
+                
+                // Populate selfie strip
+                populateSelfieStrip();
+                
+                // Initialize comparison slider
+                initializeComparisonSlider();
+            }
+            
+            function populateSelfieStrip() {
+                const selfieStrip = document.getElementById('selfieStrip');
+                selfieStrip.innerHTML = '';
+                
+                // Add demo selfies
+                const demoSelfies = [
+                    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iODAiIHZpZXdCb3g9IjAgMCA4MCA4MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjgwIiBoZWlnaHQ9IjgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxjaXJjbGUgY3g9IjQwIiBjeT0iMzAiIHI9IjEwIiBmaWxsPSIjOUI5QkEwIi8+CjxwYXRoIGQ9Ik0yMCA1MEg2MFY2MEgyMFY1MFoiIGZpbGw9IiM5QjlCQTAiLz4KPC9zdmc+',
+                    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iODAiIHZpZXdCb3g9IjAgMCA4MCA4MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjgwIiBoZWlnaHQ9IjgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxjaXJjbGUgY3g9IjQwIiBjeT0iMzAiIHI9IjEwIiBmaWxsPSIjOUI5QkEwIi8+CjxwYXRoIGQ9Ik0yMCA1MEg2MFY2MEgyMFY1MFoiIGZpbGw9IiM5QjlCQTAiLz4KPC9zdmc+',
+                    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iODAiIHZpZXdCb3g9IjAgMCA4MCA4MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjgwIiBoZWlnaHQ9IjgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxjaXJjbGUgY3g9IjQwIiBjeT0iMzAiIHI9IjEwIiBmaWxsPSIjOUI5QkEwIi8+CjxwYXRoIGQ9Ik0yMCA1MEg2MFY2MEgyMFY1MFoiIGZpbGw9IiM5QjlCQTAiLz4KPC9zdmc+',
+                    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iODAiIHZpZXdCb3g9IjAgMCA4MCA4MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjgwIiBoZWlnaHQ9IjgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxjaXJjbGUgY3g9IjQwIiBjeT0iMzAiIHI9IjEwIiBmaWxsPSIjOUI5QkEwIi8+CjxwYXRoIGQ9Ik0yMCA1MEg2MFY2MEgyMFY1MFoiIGZpbGw9IiM5QjlCQTAiLz4KPC9zdmc+',
+                    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iODAiIHZpZXdCb3g9IjAgMCA4MCA4MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjgwIiBoZWlnaHQ9IjgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxjaXJjbGUgY3g9IjQwIiBjeT0iMzAiIHI9IjEwIiBmaWxsPSIjOUI5QkEwIi8+CjxwYXRoIGQ9Ik0yMCA1MEg2MFY2MEgyMFY1MFoiIGZpbGw9IiM5QjlCQTAiLz4KPC9zdmc+'
+                ];
+                
+                demoSelfies.forEach((src, index) => {
+                    const selfieItem = document.createElement('div');
+                    selfieItem.className = 'selfie-item';
+                    selfieItem.innerHTML = `<img src="${src}" alt="Selfie ${index + 1}">`;
+                    
+                    selfieItem.addEventListener('click', () => {
+                        selectSelfie(selfieItem, src);
+                    });
+                    
+                    selfieStrip.appendChild(selfieItem);
+                });
+                
+                selfieStrip.classList.add('show');
+            }
+            
+            function selectSelfie(selfieItem, src) {
+                document.querySelectorAll('.selfie-item').forEach(item => {
+                    item.classList.remove('selected');
+                });
+                
+                selfieItem.classList.add('selected');
+                document.getElementById('beforeImage').src = src;
+            }
+            
+            function initializeComparisonSlider() {
+                const firstSelfie = document.querySelector('.selfie-item img');
+                if (firstSelfie) {
+                    document.getElementById('beforeImage').src = firstSelfie.src;
+                }
+                
+                setupSliderDrag();
+            }
+            
+            function setupSliderDrag() {
+                const sliderHandle = document.getElementById('sliderHandle');
+                const comparisonSlider = document.getElementById('comparisonSlider');
+                let isDragging = false;
+                let startX, startLeft;
+                
+                const handleMouseDown = (e) => {
+                    isDragging = true;
+                    startX = e.clientX;
+                    startLeft = sliderHandle.offsetLeft;
+                    document.body.style.cursor = 'ew-resize';
+                    e.preventDefault();
+                };
+                
+                const handleMouseMove = (e) => {
+                    if (!isDragging) return;
+                    
+                    const deltaX = e.clientX - startX;
+                    const newLeft = startLeft + deltaX;
+                    const containerWidth = comparisonSlider.offsetWidth;
+                    const handleWidth = sliderHandle.offsetWidth;
+                    
+                    const constrainedLeft = Math.max(0, Math.min(newLeft, containerWidth - handleWidth));
+                    const percentage = (constrainedLeft / (containerWidth - handleWidth)) * 100;
+                    
+                    sliderHandle.style.left = `${constrainedLeft}px`;
+                    comparisonSlider.querySelector('.comparison-before').style.clipPath = 
+                        `polygon(0 0, ${percentage}% 0, ${percentage}% 100%, 0 100%)`;
+                };
+                
+                const handleMouseUp = () => {
+                    isDragging = false;
+                    document.body.style.cursor = '';
+                };
+                
+                sliderHandle.addEventListener('mousedown', handleMouseDown);
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+            }
+            
+            // View toggle functionality
+            document.querySelectorAll('.toggle-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+                    e.target.classList.add('active');
+                    
+                    const view = e.target.getAttribute('data-view');
+                    const comparisonSlider = document.getElementById('comparisonSlider');
+                    if (view === 'side-by-side') {
+                        comparisonSlider.classList.add('side-by-side');
+                    } else {
+                        comparisonSlider.classList.remove('side-by-side');
+                    }
+                });
+            });
+            
+            // Download functionality
+            document.getElementById('downloadBtn').addEventListener('click', async () => {
+                const btn = document.getElementById('downloadBtn');
+                const content = btn.querySelector('.btn-content');
+                const loading = btn.querySelector('.btn-loading');
+                
+                btn.disabled = true;
+                content.classList.add('hidden');
+                loading.classList.remove('hidden');
+                
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                btn.disabled = false;
+                content.classList.remove('hidden');
+                loading.classList.add('hidden');
+                
+                showStatus('Avatar downloaded successfully!', 'success');
+            });
+
+            function hideResult() {
+                resultContainer.style.display = 'none';
+            }
+
+            // Generate button click
+            generateBtn.addEventListener('click', async () => {
+                disableGenerateButton();
+                hideResult();
+                showProgress();
+                showStatus('Starting demo generation...', 'info');
+
+                // Simulate processing
+                let progress = 0;
+                const interval = setInterval(() => {
+                    progress += Math.random() * 15;
+                    if (progress > 100) progress = 100;
+                    
+                    updateProgress(progress, getProgressMessage(progress));
+                    
+                    if (progress >= 100) {
+                        clearInterval(interval);
+                        setTimeout(() => {
+                            hideProgress();
+                            showResult();
+                            showStatus('Demo avatar generated successfully!', 'success');
+                            enableGenerateButton();
+                        }, 1000);
+                    }
+                }, 500);
+            });
+
+            function getProgressMessage(progress) {
+                if (progress < 20) return 'Uploading files...';
+                if (progress < 40) return 'Processing selfies...';
+                if (progress < 60) return 'Generating avatar...';
+                if (progress < 80) return 'Enhancing quality...';
+                return 'Finalizing...';
+            }
+        });
+    </script>
+</body>
+</html> 

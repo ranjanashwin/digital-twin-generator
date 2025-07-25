@@ -12,7 +12,6 @@ from typing import List, Dict, Optional, Tuple
 import cv2
 from insightface.app import FaceAnalysis
 import insightface
-from diffusers import IPAdapterModel, IPAdapterPlusModel
 from diffusers.utils import load_image
 from diffusers.loaders import load_ipadapter_from_pretrained
 import os
@@ -62,17 +61,18 @@ class IPAdapterManager:
             
         except Exception as e:
             logger.error(f"Failed to load IPAdapter model: {e}")
-            # Fallback to direct loading if the loader fails
+            # Try alternative loading method
             try:
+                from diffusers.models import IPAdapterModel
                 self.ip_adapter_model = IPAdapterModel.from_pretrained(
                     model_path,
                     subfolder="models",
                     torch_dtype=torch.float16
                 ).to(self.device)
-                logger.info(f"IPAdapter model loaded using fallback method")
+                logger.info(f"IPAdapter model loaded using alternative method")
                 return True
             except Exception as e2:
-                logger.error(f"Fallback loading also failed: {e2}")
+                logger.error(f"Alternative loading also failed: {e2}")
                 return False
     
     def extract_face_embeddings(self, image_paths: List[str]) -> Tuple[List[np.ndarray], List[Dict]]:

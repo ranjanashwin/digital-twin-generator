@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fashion Digital Twin Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fashion_styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Fashion Digital Twin Generator</h1>
+            <p>Create stunning fashion content with AI-powered avatar generation</p>
+        </header>
+
+        <!-- Workflow Steps -->
+        <div class="workflow-container">
+            <!-- Step 1: Upload Selfies -->
+            <div class="workflow-step" id="step1">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Upload Selfies</h3>
+                        <p>Upload 15+ selfies to create your digital twin</p>
+                    </div>
+                    <div class="step-status" id="step1-status">pending</div>
+                </div>
+                
+                <div class="step-content-area">
+                    <div class="upload-section">
+                        <div class="upload-group">
+                            <h4>Selfies Upload (Required)</h4>
+                            <div class="file-upload-area" id="selfiesUploadArea">
+                                <div class="upload-icon">📁</div>
+                                <p>Drag & drop ZIP file with 15+ selfies here</p>
+                                <p class="upload-hint">or click to browse</p>
+                                <input type="file" id="selfiesFileInput" accept=".zip" style="display: none;">
+                            </div>
+                            <div class="file-preview" id="selfiesFilePreview" style="display: none;">
+                                <div class="preview-content">
+                                    <span class="file-name" id="selfiesFileName"></span>
+                                    <span class="file-size" id="selfiesFileSize"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="customization-section">
+                        <h4>Avatar Customization</h4>
+                        
+                        <div class="option-group">
+                            <label for="avatarStyle">Avatar Style:</label>
+                            <select id="avatarStyle" name="avatar_style">
+                                <option value="fashion_portrait">Fashion Portrait</option>
+                                <option value="street_style">Street Style</option>
+                                <option value="studio_fashion">Studio Fashion</option>
+                                <option value="editorial">Editorial</option>
+                            </select>
+                            <div class="style-description" id="styleDescription">
+                                High-fashion editorial style with professional lighting
+                            </div>
+                        </div>
+
+                        <div class="option-group">
+                            <label for="customPrompt">Custom Prompt (Optional):</label>
+                            <textarea id="customPrompt" name="prompt" placeholder="Describe your desired avatar style, lighting, or mood..."></textarea>
+                            <div class="hint">Leave empty to use default style prompts</div>
+                        </div>
+
+                        <div class="option-group">
+                            <label>Quality Mode:</label>
+                            <div class="radio-group" id="qualityModeGroup">
+                                <div class="radio-option">
+                                    <input type="radio" id="standard" name="quality_mode" value="standard">
+                                    <label for="standard" class="radio-custom">
+                                        <div class="radio-content">
+                                            <div class="radio-title">Standard</div>
+                                            <div class="radio-description">Good quality, faster generation (3-5 min)</div>
+                                        </div>
+                                    </label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" id="high_fidelity" name="quality_mode" value="high_fidelity" checked>
+                                    <label for="high_fidelity" class="radio-custom">
+                                        <div class="radio-content">
+                                            <div class="radio-title">High Fidelity</div>
+                                            <div class="radio-description">Excellent quality, balanced speed (5-8 min)</div>
+                                        </div>
+                                    </label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" id="ultra_fidelity" name="quality_mode" value="ultra_fidelity">
+                                    <label for="ultra_fidelity" class="radio-custom">
+                                        <div class="radio-content">
+                                            <div class="radio-title">Ultra Fidelity</div>
+                                            <div class="radio-description">Maximum quality, slower generation (8-12 min)</div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="generate-btn" id="generateAvatarBtn" disabled>
+                        Generate Digital Twin
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 2: Upload Clothing & Scene -->
+            <div class="workflow-step" id="step2" style="display: none;">
+                <div class="step-header">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Upload Clothing & Scene</h3>
+                        <p>Add clothing and describe the scene</p>
+                    </div>
+                    <div class="step-status" id="step2-status">pending</div>
+                </div>
+                
+                <div class="step-content-area">
+                    <div class="upload-section">
+                        <div class="upload-group">
+                            <h4>Clothing Image (Required)</h4>
+                            <div class="file-upload-area" id="clothingUploadArea">
+                                <div class="upload-icon">👕</div>
+                                <p>Drag & drop clothing image here</p>
+                                <p class="upload-hint">or click to browse</p>
+                                <input type="file" id="clothingFileInput" accept="image/*" style="display: none;">
+                            </div>
+                            <div class="file-preview" id="clothingFilePreview" style="display: none;">
+                                <div class="preview-content">
+                                    <img class="preview-image" id="clothingPreviewImage" alt="Clothing preview">
+                                    <div class="preview-info">
+                                        <span class="file-name" id="clothingFileName"></span>
+                                        <span class="file-size" id="clothingFileSize"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="customization-section">
+                        <h4>Scene Description</h4>
+                        
+                        <div class="option-group">
+                            <label for="scenePrompt">Scene Description:</label>
+                            <textarea id="scenePrompt" name="scene_prompt" placeholder="Describe the scene, lighting, and mood (e.g., 'golden hour at Paris rooftop', 'studio lighting with clean background')" required></textarea>
+                            <div class="hint">Be specific about lighting, location, and mood for best results</div>
+                        </div>
+
+                        <div class="option-group">
+                            <label>Quality Mode:</label>
+                            <div class="radio-group" id="fashionQualityModeGroup">
+                                <div class="radio-option">
+                                    <input type="radio" id="fashion_standard" name="fashion_quality_mode" value="standard">
+                                    <label for="fashion_standard" class="radio-custom">
+                                        <div class="radio-content">
+                                            <div class="radio-title">Standard</div>
+                                            <div class="radio-description">Good quality, faster generation (3-5 min)</div>
+                                        </div>
+                                    </label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" id="fashion_high_fidelity" name="fashion_quality_mode" value="high_fidelity" checked>
+                                    <label for="fashion_high_fidelity" class="radio-custom">
+                                        <div class="radio-content">
+                                            <div class="radio-title">High Fidelity</div>
+                                            <div class="radio-description">Excellent quality, balanced speed (5-8 min)</div>
+                                        </div>
+                                    </label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" id="fashion_ultra_fidelity" name="fashion_quality_mode" value="ultra_fidelity">
+                                    <label for="fashion_ultra_fidelity" class="radio-custom">
+                                        <div class="radio-content">
+                                            <div class="radio-title">Ultra Fidelity</div>
+                                            <div class="radio-description">Maximum quality, slower generation (8-12 min)</div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="generate-btn" id="generateFashionBtn" disabled>
+                        Generate Fashion Photo
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 3: View Results -->
+            <div class="workflow-step" id="step3" style="display: none;">
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>View Results</h3>
+                        <p>Your fashion content is ready!</p>
+                    </div>
+                    <div class="step-status" id="step3-status">pending</div>
+                </div>
+                
+                <div class="step-content-area">
+                    <div class="results-container" id="resultsContainer" style="display: none;">
+                        <div class="result-section">
+                            <h4>Your Digital Twin</h4>
+                            <div class="result-image-container">
+                                <img id="avatarResult" src="/static/images/placeholder.png" alt="Avatar result">
+                            </div>
+                            <button class="download-btn" id="downloadAvatarBtn">Download Avatar</button>
+                        </div>
+
+                        <div class="result-section">
+                            <h4>Fashion Photo</h4>
+                            <div class="result-image-container">
+                                <img id="fashionResult" src="/static/images/placeholder.png" alt="Fashion result">
+                            </div>
+                            <button class="download-btn" id="downloadFashionBtn">Download Fashion Photo</button>
+                        </div>
+
+                        <div class="result-actions">
+                            <button class="regenerate-btn" id="regenerateBtn">Generate New Photo</button>
+                            <button class="restart-btn" id="restartBtn">Start Over</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress Container -->
+        <div class="progress-container" id="progressContainer" style="display: none;">
+            <div class="progress-header">
+                <h3 id="progressTitle">Processing...</h3>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="progress-message" id="progressMessage">Initializing...</p>
+            </div>
+        </div>
+
+        <!-- Status Messages -->
+        <div class="status-message" id="statusMessage" style="display: none;"></div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Powered by SDXL + IPAdapter + ControlNet + VITON-HD</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/fashion_workflow.js') }}"></script>
+</body>
+</html> 

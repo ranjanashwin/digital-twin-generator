@@ -27,47 +27,112 @@
         <!-- Main Card -->
         <main class="main-card">
             <!-- Upload Section -->
-            <div class="upload-area" id="uploadArea">
-                <div class="upload-icon">📁</div>
-                <div class="upload-text">Click to upload or drag & drop</div>
-                <div class="upload-hint">ZIP file containing 15+ selfies (JPG, PNG, WEBP)</div>
-                
-                <!-- File Requirements -->
-                <div class="upload-requirements">
-                    <h4>📋 Requirements:</h4>
-                    <ul>
-                        <li>Minimum 15 selfies of the same person</li>
-                        <li>Clear, front-facing photos with good lighting</li>
-                        <li>High resolution images (1024x1024 or larger)</li>
-                        <li>Varied expressions and angles for best results</li>
-                    </ul>
+            <div class="upload-section">
+                <!-- Selfies Upload -->
+                <div class="upload-group">
+                    <h3>📸 Upload Selfies (Required)</h3>
+                    <div class="upload-area" id="selfiesUploadArea">
+                        <div class="upload-icon">📁</div>
+                        <div class="upload-text">Click to upload or drag & drop</div>
+                        <div class="upload-hint">ZIP file containing 15+ selfies (JPG, PNG, WEBP)</div>
+                        
+                        <!-- File Requirements -->
+                        <div class="upload-requirements">
+                            <h4>📋 Requirements:</h4>
+                            <ul>
+                                <li>Minimum 15 selfies of the same person</li>
+                                <li>Clear, front-facing photos with good lighting</li>
+                                <li>High resolution images (1024x1024 or larger)</li>
+                                <li>Varied expressions and angles for best results</li>
+                            </ul>
+                        </div>
+                        
+                        <input type="file" id="selfiesFileInput" class="file-input" accept=".zip">
+                    </div>
+
+                    <!-- File Preview -->
+                    <div class="file-preview hidden" id="selfiesFilePreview">
+                        <h4>Selected ZIP File:</h4>
+                        <div class="file-info" id="selfiesFileInfo"></div>
+                    </div>
                 </div>
+
+                <!-- Clothing Upload -->
+                <div class="upload-group">
+                    <h3>👕 Clothing Reference (Optional)</h3>
+                    <div class="upload-area" id="clothingUploadArea">
+                        <div class="upload-icon">👕</div>
+                        <div class="upload-text">Click to upload clothing reference</div>
+                        <div class="upload-hint">Single image of desired clothing style</div>
+                        
+                        <input type="file" id="clothingFileInput" class="file-input" accept="image/*">
+                    </div>
+
+                    <!-- Clothing Preview -->
+                    <div class="file-preview hidden" id="clothingFilePreview">
+                        <h4>Selected Clothing Image:</h4>
+                        <div class="file-info" id="clothingFileInfo"></div>
+                        <img id="clothingPreview" class="preview-image" alt="Clothing Preview">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Customization Options -->
+            <div class="customization-section">
+                <h3>🎨 Customize Your Avatar</h3>
                 
-                <input type="file" id="fileInput" class="file-input" accept=".zip">
-            </div>
-
-            <!-- File Preview -->
-            <div class="file-preview hidden" id="filePreview">
-                <h4>Selected File:</h4>
-                <div class="file-info" id="fileInfo"></div>
-            </div>
-
-            <!-- Generation Options -->
-            <div class="options">
+                <!-- Custom Prompt -->
                 <div class="option-group">
-                    <label for="promptStyle">Avatar Style:</label>
-                    <select id="promptStyle">
-                        <option value="portrait">Professional Portrait</option>
+                    <label for="customPrompt">Custom Description:</label>
+                    <textarea id="customPrompt" placeholder="Describe your desired avatar (e.g., 'wearing a blue suit', 'in a garden setting', 'with glasses')" rows="3"></textarea>
+                    <div class="hint">Optional: Add specific details about clothing, setting, or style preferences</div>
+                </div>
+
+                <!-- Avatar Style -->
+                <div class="option-group">
+                    <label for="avatarStyle">Avatar Style:</label>
+                    <select id="avatarStyle">
+                        <option value="professional_portrait">Professional Portrait</option>
+                        <option value="stylized">Stylized</option>
+                        <option value="fantasy">Fantasy</option>
                         <option value="casual">Casual Photo</option>
-                        <option value="professional">Business Headshot</option>
                     </select>
+                    <div class="style-description" id="styleDescription">
+                        Clean, business-like headshot with professional lighting
+                    </div>
                 </div>
+
+                <!-- Quality Mode -->
                 <div class="option-group">
-                    <label for="qualityMode">Quality Mode:</label>
-                    <select id="qualityMode">
-                        <option value="fast">⚡ Fast (2-3 min)</option>
-                        <option value="high_fidelity" selected>🎨 High Fidelity (5-8 min)</option>
-                    </select>
+                    <label>Quality Mode:</label>
+                    <div class="radio-group" id="qualityModeGroup">
+                        <label class="radio-option">
+                            <input type="radio" name="qualityMode" value="standard">
+                            <span class="radio-custom"></span>
+                            <div class="radio-content">
+                                <div class="radio-title">⚡ Standard</div>
+                                <div class="radio-description">Good quality, faster generation (2-3 min)</div>
+                            </div>
+                        </label>
+                        
+                        <label class="radio-option">
+                            <input type="radio" name="qualityMode" value="high_fidelity" checked>
+                            <span class="radio-custom"></span>
+                            <div class="radio-content">
+                                <div class="radio-title">🎨 High Fidelity</div>
+                                <div class="radio-description">Excellent quality, balanced speed (4-6 min)</div>
+                            </div>
+                        </label>
+                        
+                        <label class="radio-option">
+                            <input type="radio" name="qualityMode" value="ultra_fidelity">
+                            <span class="radio-custom"></span>
+                            <div class="radio-content">
+                                <div class="radio-title">✨ Ultra Fidelity</div>
+                                <div class="radio-description">Maximum quality, slower generation (6-8 min)</div>
+                            </div>
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -80,7 +145,7 @@
             </button>
 
             <!-- Progress Section -->
-            <div class="progress-container" id="progressContainer">
+            <div class="progress-container hidden" id="progressContainer">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressFill"></div>
                 </div>
@@ -88,7 +153,7 @@
             </div>
 
             <!-- Result Section -->
-            <div class="result-container" id="resultContainer">
+            <div class="result-container hidden" id="resultContainer">
                 <!-- Selfie Preview Strip -->
                 <div class="selfie-strip-container">
                     <h4>📸 Your Selfies</h4>

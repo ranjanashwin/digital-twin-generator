@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Digital Twin Generator - Flask Web Application
+Digital Twin Generator - Fashion Content Creator Workflow
 """
 
 import os
@@ -8,21 +8,24 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import zipfile
 import shutil
 import uuid
+from datetime import datetime
+import json
 
-from flask import Flask, request, jsonify, render_template, send_file, abort
+from flask import Flask, request, jsonify, render_template, send_file, abort, redirect, url_for
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-import json
+import traceback
 
 from config import WEB_CONFIG, SELFIES_DIR, OUTPUT_DIR, QUALITY_MODES, CURRENT_QUALITY, QUALITY_MODE
 from generate_twin import DigitalTwinGenerator
 from utils.image_validator import ImageValidator
 from utils.resource_manager import ResourceManager
-import traceback
+from utils.viton_integration import VitonHDProcessor
+from utils.controlnet_integration import ControlNetProcessor
 
 # Setup logging
 logging.basicConfig(
@@ -46,14 +49,95 @@ job_lock = threading.Lock()
 image_validator = ImageValidator()
 resource_manager = ResourceManager()
 
+# Initialize specialized processors
+viton_processor = VitonHDProcessor()
+controlnet_processor = ControlNetProcessor()
+
 # Ensure directories exist
 SELFIES_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# Fashion workflow configuration
+FASHION_WORKFLOW_STEPS = {
+    "step1": {
+        "name": "Upload Selfies",
+        "description": "Upload 15+ selfies to create your digital twin",
+        "status": "pending"
+    },
+    "step2": {
+        "name": "Upload Clothing & Scene",
+        "description": "Add clothing and describe the scene",
+        "status": "pending"
+    },
+    "step3": {
+        "name": "Generate Fashion Photo",
+        "description": "Create your fashion content",
+        "status": "pending"
+    }
+}
+
+# Avatar styles for fashion content
+FASHION_AVATAR_STYLES = {
+    "fashion_portrait": {
+        "name": "Fashion Portrait",
+        "description": "High-fashion editorial style",
+        "prompt_template": "a high-fashion portrait of the person, editorial lighting, professional photography, fashion magazine style, sharp details"
+    },
+    "street_style": {
+        "name": "Street Style",
+        "description": "Casual street fashion look",
+        "prompt_template": "a street style photo of the person, natural lighting, urban background, candid fashion photography"
+    },
+    "studio_fashion": {
+        "name": "Studio Fashion",
+        "description": "Professional studio fashion shoot",
+        "prompt_template": "a professional studio fashion photo of the person, studio lighting, clean background, high-end fashion photography"
+    },
+    "editorial": {
+        "name": "Editorial",
+        "description": "Magazine editorial style",
+        "prompt_template": "an editorial fashion photo of the person, dramatic lighting, artistic composition, fashion magazine cover style"
+    }
+}
+
+# Quality modes for fashion content
+FASHION_QUALITY_MODES = {
+    "standard": {
+        "name": "Standard",
+        "description": "Good quality, faster generation",
+        "resolution": (768, 768),
+        "steps": 20,
+        "guidance_scale": 7.0,
+        "estimated_time": "3-5 minutes"
+    },
+    "high_fidelity": {
+        "name": "High Fidelity",
+        "description": "Excellent quality, balanced speed",
+        "resolution": (1024, 1024),
+        "steps": 30,
+        "guidance_scale": 8.0,
+        "estimated_time": "5-8 minutes"
+    },
+    "ultra_fidelity": {
+        "name": "Ultra Fidelity",
+        "description": "Maximum quality, slower generation",
+        "resolution": (1024, 1024),
+        "steps": 50,
+        "guidance_scale": 8.5,
+        "estimated_time": "8-12 minutes"
+    }
+}
 
 def allowed_file(filename):
     """Check if file extension is allowed"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in {ext[1:] for ext in WEB_CONFIG["allowed_extensions"]}
+
+def create_session_id():
+    """Create unique session ID with timestamp"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = str(uuid.uuid4())[:8]
+    return f"{timestamp}_{unique_id}"
 
 def create_job_id():
     """Create unique job ID"""
@@ -85,8 +169,81 @@ def cleanup_job_files(job_id: str):
     except Exception as e:
         logger.error(f"Failed to cleanup job files for {job_id}: {e}")
 
-def generate_digital_twin_worker(job_id: str, selfies_folder: str, prompt_style: str = "portrait", quality_mode: str = "high_fidelity"):
-    """Worker function to generate digital twin with resource management"""
+def validate_zip_file(zip_path: str) -> Dict[str, Any]:
+    """Validate ZIP file contents"""
+    try:
+        image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
+        image_files = []
+        
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            file_list = zip_ref.namelist()
+            
+            for file_name in file_list:
+                if not file_name.endswith('/'):  # Skip directories
+                    file_ext = Path(file_name).suffix.lower()
+                    if file_ext in image_extensions:
+                        image_files.append(file_name)
+        
+        if len(image_files) < 15:
+            return {
+                'valid': False,
+                'error': f'Insufficient images. Found {len(image_files)} images, minimum 15 required.',
+                'count': len(image_files)
+            }
+        
+        return {
+            'valid': True,
+            'count': len(image_files),
+            'files': image_files
+        }
+        
+    except zipfile.BadZipFile:
+        return {
+            'valid': False,
+            'error': 'Invalid ZIP file format.'
+        }
+    except Exception as e:
+        return {
+            'valid': False,
+            'error': f'Error processing ZIP file: {str(e)}'
+        }
+
+def extract_zip_to_session(zip_path: str, session_dir: Path) -> List[str]:
+    """Extract ZIP file to session directory and return image paths"""
+    image_paths = []
+    extract_dir = session_dir / "selfies"
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_dir)
+        
+        # Find all image files
+        image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
+        for file_path in extract_dir.rglob('*'):
+            if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                image_paths.append(str(file_path))
+    
+    return image_paths
+
+def save_clothing_image(file, session_dir: Path) -> str:
+    """Save clothing image to session directory"""
+    if file and file.filename:
+        filename = secure_filename(file.filename)
+        clothing_path = session_dir / "clothing" / filename
+        clothing_path.parent.mkdir(parents=True, exist_ok=True)
+        file.save(str(clothing_path))
+        return str(clothing_path)
+    return None
+
+def save_prompt_text(prompt: str, session_dir: Path):
+    """Save prompt text to session directory"""
+    prompt_file = session_dir / "prompt.txt"
+    with open(prompt_file, 'w', encoding='utf-8') as f:
+        f.write(prompt)
+
+def generate_avatar_worker(session_id: str, job_id: str, session_dir: Path, 
+                          prompt: str, avatar_style: str, quality_mode: str):
+    """Worker function to generate digital twin avatar"""
     try:
         # Update resource manager
         resource_manager.update_job_access(job_id)
@@ -99,194 +256,347 @@ def generate_digital_twin_worker(job_id: str, selfies_folder: str, prompt_style:
         # Load models
         generator.load_models()
         
-        update_job_status(job_id, "analyzing_selfies", 30, "Analyzing selfies for pose and lighting patterns...")
+        update_job_status(job_id, "validating_images", 20, "Validating uploaded images...")
         
-        # Generate digital twin with enhanced pose and lighting analysis
-        output_dir = OUTPUT_DIR / job_id
+        # Validate selfies
+        selfies_dir = session_dir / "selfies"
+        image_paths = list(selfies_dir.glob("*"))
+        image_paths = [str(p) for p in image_paths if p.is_file()]
+        
+        if len(image_paths) < 15:
+            raise ValueError(f"Insufficient images. Found {len(image_paths)} images, minimum 15 required.")
+        
+        # Validate images with comprehensive checks
+        validation_results = image_validator.validate_image_set(image_paths)
+        if not validation_results['summary']['meets_requirements']:
+            raise ValueError(f"Image validation failed: {validation_results['summary']}")
+        
+        update_job_status(job_id, "analyzing_pose_lighting", 30, "Analyzing pose and lighting patterns...")
+        
+        # Analyze pose and lighting
+        pose_analysis = generator.analyze_pose_and_lighting(str(selfies_dir))
+        
+        update_job_status(job_id, "creating_lora_embedding", 40, "Creating personalized identity embedding...")
+        
+        # Create LoRA embedding
+        lora_metadata = generator.create_lora_embedding(str(selfies_dir), session_id)
+        
+        update_job_status(job_id, "generating_avatar", 50, "Generating your digital twin...")
+        
+        # Prepare output directory
+        output_dir = session_dir / "avatar_output"
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Generate avatar with enhanced prompt
+        style_config = FASHION_AVATAR_STYLES.get(avatar_style, FASHION_AVATAR_STYLES["fashion_portrait"])
+        base_prompt = style_config["prompt_template"]
+        
+        # Combine custom prompt with style template
+        if prompt and prompt.strip():
+            enhanced_prompt = f"{base_prompt}, {prompt.strip()}"
+        else:
+            enhanced_prompt = base_prompt
+        
+        # Apply pose and lighting analysis
+        enhanced_prompt = generator._enhance_prompt_with_analysis(enhanced_prompt, pose_analysis)
+        
+        # Generate avatar
         generated_images = generator.generate_digital_twin(
-            selfies_folder=selfies_folder,
+            selfies_folder=str(selfies_dir),
             output_path=str(output_dir),
-            prompt_style=prompt_style,
-            num_images=1
+            prompt_style=avatar_style,
+            num_images=1,
+            seed=None
         )
         
+        update_job_status(job_id, "enhancing_face", 80, "Enhancing facial details...")
+        
+        # Enhance the generated image
         if generated_images:
-            update_job_status(job_id, "completed", 100, "Generation completed with enhanced pose, lighting analysis, and LoRA training!", {
-                'images': generated_images,
-                'enhanced': True,
-                'lora_trained': True,
-                'quality_mode': quality_mode
-            })
-            
-            # Log completion with resource info
-            system_status = resource_manager.get_system_status()
-            logger.info(f"Job {job_id} completed. System status: {system_status}")
-            
+            enhanced_image_path = generator.enhance_face(generated_images[0])
+            final_image_path = enhanced_image_path
         else:
-            update_job_status(job_id, "failed", 0, "Generation failed - no images produced")
+            raise ValueError("Failed to generate avatar image")
+        
+        update_job_status(job_id, "completed", 100, "Avatar generation completed!", {
+            'session_id': session_id,
+            'avatar_path': str(final_image_path),
+            'prompt': enhanced_prompt,
+            'style': avatar_style,
+            'quality_mode': quality_mode,
+            'image_count': len(image_paths),
+            'validation_summary': validation_results['summary'],
+            'workflow_step': 'step1_completed'
+        })
         
         # Cleanup
         generator.cleanup()
         
     except Exception as e:
-        logger.error(f"Generation failed for job {job_id}: {e}")
+        logger.error(f"Avatar generation failed for job {job_id}: {e}")
         logger.error(traceback.format_exc())
-        update_job_status(job_id, "failed", 0, f"Generation failed: {str(e)}")
-    
-    finally:
-        # Clean up resources
+        update_job_status(job_id, "failed", 0, f"Avatar generation failed: {str(e)}")
+        
+        # Cleanup on failure
         try:
-            # Clean up temporary files
-            cleanup_job_files(job_id)
-            
-            # Clean up job in resource manager
-            resource_manager.cleanup_job(job_id)
-            
-            # Force garbage collection
-            import gc
-            gc.collect()
-            
-            logger.info(f"Cleanup completed for job {job_id}")
-            
-        except Exception as cleanup_error:
-            logger.error(f"Cleanup failed for job {job_id}: {cleanup_error}")
+            generator.cleanup()
+        except:
+            pass
+
+def generate_fashion_photo_worker(session_id: str, job_id: str, session_dir: Path,
+                                 clothing_path: str, scene_prompt: str, quality_mode: str):
+    """Worker function to generate fashion photo with clothing and scene"""
+    try:
+        # Update resource manager
+        resource_manager.update_job_access(job_id)
+        
+        update_job_status(job_id, "loading_fashion_models", 10, "Loading fashion AI models...")
+        
+        # Initialize processors
+        viton_processor.load_models()
+        controlnet_processor.load_models()
+        
+        update_job_status(job_id, "processing_clothing", 20, "Processing clothing image...")
+        
+        # Process clothing with VITON-HD
+        clothing_processed = viton_processor.process_clothing(clothing_path)
+        
+        update_job_status(job_id, "generating_pose", 30, "Generating optimal pose...")
+        
+        # Get avatar from previous step
+        avatar_dir = session_dir / "avatar_output"
+        avatar_files = list(avatar_dir.glob("*.png"))
+        if not avatar_files:
+            raise ValueError("No avatar found. Please complete step 1 first.")
+        
+        avatar_path = str(avatar_files[0])
+        
+        update_job_status(job_id, "applying_controlnet", 40, "Applying ControlNet for pose alignment...")
+        
+        # Apply ControlNet for pose and depth
+        pose_conditioning = controlnet_processor.create_pose_conditioning(avatar_path, clothing_processed)
+        
+        update_job_status(job_id, "generating_fashion_photo", 50, "Generating fashion photo...")
+        
+        # Prepare output directory
+        output_dir = session_dir / "fashion_output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate fashion photo with all components
+        fashion_image_path = controlnet_processor.generate_fashion_photo(
+            avatar_path=avatar_path,
+            clothing_path=clothing_processed,
+            scene_prompt=scene_prompt,
+            pose_conditioning=pose_conditioning,
+            output_path=str(output_dir),
+            quality_mode=quality_mode
+        )
+        
+        update_job_status(job_id, "enhancing_result", 80, "Enhancing final result...")
+        
+        # Enhance the final image
+        enhanced_fashion_path = controlnet_processor.enhance_image(fashion_image_path)
+        
+        update_job_status(job_id, "completed", 100, "Fashion photo generation completed!", {
+            'session_id': session_id,
+            'fashion_photo_path': str(enhanced_fashion_path),
+            'clothing_path': clothing_path,
+            'scene_prompt': scene_prompt,
+            'quality_mode': quality_mode,
+            'workflow_step': 'step3_completed'
+        })
+        
+        # Cleanup
+        viton_processor.cleanup()
+        controlnet_processor.cleanup()
+        
+    except Exception as e:
+        logger.error(f"Fashion photo generation failed for job {job_id}: {e}")
+        logger.error(traceback.format_exc())
+        update_job_status(job_id, "failed", 0, f"Fashion photo generation failed: {str(e)}")
+        
+        # Cleanup on failure
+        try:
+            viton_processor.cleanup()
+            controlnet_processor.cleanup()
+        except:
+            pass
 
 @app.route('/')
 def index():
-    """Serve the main page"""
-    return render_template('index.html')
+    """Main page - Fashion workflow"""
+    return render_template('fashion_workflow.html')
 
 @app.route('/demo')
 def demo():
-    """Serve the demo page"""
+    """Demo page"""
     return render_template('demo.html')
 
 @app.route('/test')
 def test():
-    """API test page"""
+    """Test page"""
     return render_template('test.html')
 
-@app.route('/upload', methods=['POST'])
+@app.route('/upload-selfies', methods=['POST'])
 def upload_selfies():
-    """Handle selfie upload with comprehensive validation"""
+    """Step 1: Handle selfie upload and avatar generation"""
     try:
         # Check if files were uploaded
-        if 'files' not in request.files:
-            # Fallback to single file upload for backward compatibility
-            if 'file' not in request.files:
-                return jsonify({'error': 'No files uploaded'}), 400
-            
-            files = [request.files['file']]
-        else:
-            # Handle multiple file uploads
-            files = request.files.getlist('files')
+        if 'zip_file' not in request.files:
+            return jsonify({'error': 'No ZIP file uploaded'}), 400
         
-        if not files or all(f.filename == '' for f in files):
-            return jsonify({'error': 'No files selected'}), 400
-        
-        # Validate file types
-        for file in files:
-            if not allowed_file(file.filename):
-                return jsonify({'error': f'Invalid file type: {file.filename}. Please upload image files.'}), 400
-        
-        # Create job ID and directories
-        job_id = create_job_id()
-        job_dir = SELFIES_DIR / job_id
-        output_dir = OUTPUT_DIR / job_id
-        
-        job_dir.mkdir(parents=True, exist_ok=True)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Register job with resource manager
-        resource_manager.register_job(job_id, str(job_dir), str(output_dir))
-        
-        # Save uploaded files
-        image_paths = []
-        extract_dir = job_dir / "images"
-        extract_dir.mkdir(exist_ok=True)
-        
-        for file in files:
-            if file.filename:
-                filename = secure_filename(file.filename)
-                file_path = extract_dir / filename
-                file.save(str(file_path))
-                image_paths.append(str(file_path))
-        
-        if not image_paths:
-            cleanup_job_files(job_id)
-            resource_manager.cleanup_job(job_id, force=True)
-            return jsonify({'error': 'No valid image files uploaded'}), 400
-        
-        # Validate images with comprehensive checks
-        logger.info(f"Validating {len(image_paths)} images for job {job_id}")
-        validation_results = image_validator.validate_image_set(image_paths)
-        
-        # Check if validation passed
-        if not validation_results['summary']['meets_requirements']:
-            # Clean up and return detailed error
-            cleanup_job_files(job_id)
-            resource_manager.cleanup_job(job_id, force=True)
-            
-            error_details = {
-                'error': 'Image validation failed',
-                'validation_report': image_validator.get_validation_report(validation_results),
-                'summary': validation_results['summary'],
-                'details': {
-                    'total_images': validation_results['summary']['total_images'],
-                    'valid_images': validation_results['summary']['valid_images'],
-                    'invalid_images': validation_results['summary']['invalid_images'],
-                    'required': validation_results['summary']['min_required']
-                }
-            }
-            
-            return jsonify(error_details), 400
-        
-        # Get generation parameters
-        prompt_style = request.form.get('prompt_style', 'portrait')
+        zip_file = request.files['zip_file']
+        prompt = request.form.get('prompt', '').strip()
+        avatar_style = request.form.get('avatar_style', 'fashion_portrait')
         quality_mode = request.form.get('quality_mode', 'high_fidelity')
         
-        # Initialize job with validation results
+        # Validate ZIP file
+        if zip_file.filename == '':
+            return jsonify({'error': 'No ZIP file selected'}), 400
+        
+        if not zip_file.filename.lower().endswith('.zip'):
+            return jsonify({'error': 'Please upload a ZIP file'}), 400
+        
+        # Create session ID and directories
+        session_id = create_session_id()
+        job_id = create_job_id()
+        session_dir = OUTPUT_DIR / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save ZIP file temporarily
+        zip_path = session_dir / "uploaded.zip"
+        zip_file.save(str(zip_path))
+        
+        # Validate ZIP contents
+        zip_validation = validate_zip_file(str(zip_path))
+        if not zip_validation['valid']:
+            # Clean up
+            if session_dir.exists():
+                shutil.rmtree(session_dir)
+            return jsonify({'error': zip_validation['error']}), 400
+        
+        # Extract ZIP file
+        image_paths = extract_zip_to_session(str(zip_path), session_dir)
+        
+        # Save prompt text
+        save_prompt_text(prompt, session_dir)
+        
+        # Register job with resource manager
+        resource_manager.register_job(job_id, str(session_dir), str(session_dir))
+        
+        # Initialize job
         with job_lock:
             jobs[job_id] = {
                 'id': job_id,
+                'session_id': session_id,
                 'status': 'validated',
                 'progress': 20,
-                'message': f'Validation successful: {validation_results["summary"]["valid_images"]} valid images found',
+                'message': f'Validation successful: {zip_validation["count"]} images found',
                 'created_at': time.time(),
                 'updated_at': time.time(),
-                'image_count': validation_results['summary']['valid_images'],
-                'prompt_style': prompt_style,
+                'image_count': zip_validation['count'],
+                'prompt': prompt,
+                'avatar_style': avatar_style,
                 'quality_mode': quality_mode,
-                'validation_results': validation_results['summary']
+                'validation_results': zip_validation,
+                'workflow_step': 'step1'
             }
         
         # Start generation in background
         thread = threading.Thread(
-            target=generate_digital_twin_worker,
-            args=[job_id, str(extract_dir), prompt_style, quality_mode]
+            target=generate_avatar_worker,
+            args=[session_id, job_id, session_dir, prompt, avatar_style, quality_mode]
         )
         thread.daemon = True
         thread.start()
         
         return jsonify({
             'job_id': job_id,
-            'message': f'Upload successful. {validation_results["summary"]["valid_images"]} valid images found. Generation started.',
+            'session_id': session_id,
+            'message': f'Upload successful. {zip_validation["count"]} images found. Avatar generation started.',
             'status': 'validated',
-            'image_count': validation_results['summary']['valid_images'],
-            'validation_summary': validation_results['summary']
+            'image_count': zip_validation['count'],
+            'validation_summary': zip_validation,
+            'next_step': 'step2'
         })
-    
+        
     except Exception as e:
-        logger.error(f"Upload failed: {e}")
+        logger.error(f"Selfie upload failed: {e}")
         logger.error(traceback.format_exc())
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
+@app.route('/upload-clothing-scene', methods=['POST'])
+def upload_clothing_scene():
+    """Step 2: Handle clothing upload and scene prompt"""
+    try:
+        session_id = request.form.get('session_id')
+        if not session_id:
+            return jsonify({'error': 'Session ID required'}), 400
         
-        # Clean up on error
-        if 'job_id' in locals():
-            cleanup_job_files(job_id)
-            resource_manager.cleanup_job(job_id, force=True)
+        session_dir = OUTPUT_DIR / session_id
+        if not session_dir.exists():
+            return jsonify({'error': 'Session not found'}), 400
         
+        # Check if avatar generation is complete
+        avatar_dir = session_dir / "avatar_output"
+        if not avatar_dir.exists() or not list(avatar_dir.glob("*.png")):
+            return jsonify({'error': 'Avatar generation not complete. Please complete step 1 first.'}), 400
+        
+        # Get clothing image
+        clothing_image = request.files.get('clothing_image')
+        scene_prompt = request.form.get('scene_prompt', '').strip()
+        quality_mode = request.form.get('quality_mode', 'high_fidelity')
+        
+        if not clothing_image or clothing_image.filename == '':
+            return jsonify({'error': 'Please upload a clothing image'}), 400
+        
+        if not scene_prompt:
+            return jsonify({'error': 'Please provide a scene description'}), 400
+        
+        # Save clothing image
+        clothing_path = save_clothing_image(clothing_image, session_dir)
+        
+        # Save scene prompt
+        save_prompt_text(scene_prompt, session_dir)
+        
+        # Create job for fashion photo generation
+        job_id = create_job_id()
+        
+        # Register job
+        with job_lock:
+            jobs[job_id] = {
+                'id': job_id,
+                'session_id': session_id,
+                'status': 'validated',
+                'progress': 20,
+                'message': 'Clothing and scene uploaded. Starting fashion photo generation...',
+                'created_at': time.time(),
+                'updated_at': time.time(),
+                'clothing_path': clothing_path,
+                'scene_prompt': scene_prompt,
+                'quality_mode': quality_mode,
+                'workflow_step': 'step2'
+            }
+        
+        # Start fashion photo generation
+        thread = threading.Thread(
+            target=generate_fashion_photo_worker,
+            args=[session_id, job_id, session_dir, clothing_path, scene_prompt, quality_mode]
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'job_id': job_id,
+            'session_id': session_id,
+            'message': 'Clothing and scene uploaded. Fashion photo generation started.',
+            'status': 'validated',
+            'next_step': 'step3'
+        })
+        
+    except Exception as e:
+        logger.error(f"Clothing upload failed: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 @app.route('/status/<job_id>')
@@ -296,247 +606,230 @@ def get_job_status(job_id):
         if job_id not in jobs:
             return jsonify({'error': 'Job not found'}), 404
         
-        job = jobs[job_id].copy()
+        job = jobs[job_id]
         return jsonify(job)
 
 @app.route('/download/<job_id>/<filename>')
 def download_image(job_id, filename):
     """Download generated image"""
     try:
-        # Validate filename
-        if not filename.endswith('.png'):
-            abort(400)
-        
-        # Check if job exists and is completed
         with job_lock:
             if job_id not in jobs:
                 abort(404)
             
             job = jobs[job_id]
-            if job['status'] != 'completed':
-                abort(400, description="Job not completed")
+            if job.get('status') != 'completed':
+                return jsonify({'error': 'Job not completed'}), 400
+            
+            session_id = job.get('session_id')
+            if not session_id:
+                return jsonify({'error': 'Session not found'}), 400
         
-        # Serve file
-        file_path = OUTPUT_DIR / job_id / filename
-        if not file_path.exists():
-            abort(404)
+        # Construct file path
+        session_dir = OUTPUT_DIR / session_id
+        
+        # Check different output directories
+        possible_paths = [
+            session_dir / "avatar_output" / filename,
+            session_dir / "fashion_output" / filename,
+            session_dir / "output" / filename
+        ]
+        
+        file_path = None
+        for path in possible_paths:
+            if path.exists():
+                file_path = path
+                break
+        
+        if not file_path:
+            return jsonify({'error': 'File not found'}), 404
         
         return send_file(str(file_path), as_attachment=True)
-    
+        
     except Exception as e:
         logger.error(f"Download failed: {e}")
-        abort(500)
+        return jsonify({'error': f'Download failed: {str(e)}'}), 500
+
+@app.route('/session/<session_id>')
+def get_session_results(session_id):
+    """Get session results and workflow status"""
+    try:
+        session_dir = OUTPUT_DIR / session_id
+        if not session_dir.exists():
+            return jsonify({'error': 'Session not found'}), 404
+        
+        # Check workflow progress
+        workflow_status = {
+            'step1': {'status': 'pending', 'completed': False},
+            'step2': {'status': 'pending', 'completed': False},
+            'step3': {'status': 'pending', 'completed': False}
+        }
+        
+        # Check step 1 (avatar generation)
+        avatar_dir = session_dir / "avatar_output"
+        if avatar_dir.exists() and list(avatar_dir.glob("*.png")):
+            workflow_status['step1']['status'] = 'completed'
+            workflow_status['step1']['completed'] = True
+        
+        # Check step 2 (clothing upload)
+        clothing_dir = session_dir / "clothing"
+        if clothing_dir.exists() and list(clothing_dir.glob("*")):
+            workflow_status['step2']['status'] = 'completed'
+            workflow_status['step2']['completed'] = True
+        
+        # Check step 3 (fashion photo generation)
+        fashion_dir = session_dir / "fashion_output"
+        if fashion_dir.exists() and list(fashion_dir.glob("*.png")):
+            workflow_status['step3']['status'] = 'completed'
+            workflow_status['step3']['completed'] = True
+        
+        # Get result files
+        results = {
+            'avatar_files': [],
+            'fashion_files': [],
+            'clothing_files': []
+        }
+        
+        if avatar_dir.exists():
+            results['avatar_files'] = [f.name for f in avatar_dir.glob("*.png")]
+        
+        if fashion_dir.exists():
+            results['fashion_files'] = [f.name for f in fashion_dir.glob("*.png")]
+        
+        if clothing_dir.exists():
+            results['clothing_files'] = [f.name for f in clothing_dir.glob("*")]
+        
+        return jsonify({
+            'session_id': session_id,
+            'workflow_status': workflow_status,
+            'results': results
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to get session results: {e}")
+        return jsonify({'error': f'Failed to get session results: {str(e)}'}), 500
 
 @app.route('/jobs')
 def list_jobs():
     """List recent jobs"""
     with job_lock:
         recent_jobs = []
-        current_time = time.time()
-        
         for job_id, job in jobs.items():
-            # Only show jobs from last 24 hours
-            if current_time - job['created_at'] < 86400:
+            if time.time() - job.get('created_at', 0) < 3600:  # Last hour
                 recent_jobs.append({
-                    'id': job_id,
-                    'status': job['status'],
-                    'progress': job['progress'],
-                    'created_at': job['created_at'],
-                    'image_count': job.get('image_count', 0)
+                    'job_id': job_id,
+                    'session_id': job.get('session_id'),
+                    'status': job.get('status'),
+                    'created_at': job.get('created_at'),
+                    'workflow_step': job.get('workflow_step'),
+                    'quality_mode': job.get('quality_mode')
                 })
         
         return jsonify({'jobs': recent_jobs})
 
-@app.route('/quality-modes')
-def get_quality_modes():
-    """Get available quality modes and current selection"""
-    return jsonify({
-        'current_mode': QUALITY_MODE,
-        'current_settings': CURRENT_QUALITY,
-        'available_modes': QUALITY_MODES,
-        'default_mode': 'high_fidelity'
-    })
+@app.route('/fashion-styles')
+def get_fashion_styles():
+    """Get available fashion avatar styles"""
+    return jsonify({'styles': FASHION_AVATAR_STYLES})
 
-@app.route('/quality-mode/<mode>', methods=['POST'])
-def set_quality_mode(mode):
-    """Set quality mode (requires restart to take effect)"""
-    if mode not in QUALITY_MODES:
-        return jsonify({'error': f'Invalid quality mode: {mode}'}), 400
-    
-    # In a production system, you might want to persist this setting
-    # For now, we'll just return the available modes
-    return jsonify({
-        'message': f'Quality mode set to {mode}. Restart required to take effect.',
-        'available_modes': QUALITY_MODES,
-        'selected_mode': mode
-    })
-
-@app.route('/generate', methods=['POST'])
-def generate_avatar():
-    """Generate avatar using the most recent trained twin embedding"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-        
-        prompt = data.get('prompt')
-        if not prompt:
-            return jsonify({'error': 'No prompt provided'}), 400
-        
-        # Get generation parameters
-        num_images = data.get('num_images', 1)
-        quality_mode = data.get('quality_mode', 'high_fidelity')
-        seed = data.get('seed')
-        
-        # Find the most recent successful job
-        recent_jobs = [j for j in jobs.values() if j.get('status') == 'completed' and j.get('result')]
-        if not recent_jobs:
-            return jsonify({'error': 'No trained twin embedding found. Please upload selfies first.'}), 400
-        
-        # Get the most recent job
-        latest_job = max(recent_jobs, key=lambda x: x.get('created_at', 0))
-        job_id = latest_job['id']
-        
-        # Create new generation job
-        generation_job_id = create_job_id()
-        generation_output_dir = OUTPUT_DIR / generation_job_id
-        generation_output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Register generation job
-        with job_lock:
-            jobs[generation_job_id] = {
-                'id': generation_job_id,
-                'status': 'generating',
-                'progress': 0,
-                'message': 'Generating avatar...',
-                'created_at': time.time(),
-                'updated_at': time.time(),
-                'prompt': prompt,
-                'num_images': num_images,
-                'quality_mode': quality_mode,
-                'base_job_id': job_id
-            }
-        
-        # Start generation in background
-        thread = threading.Thread(
-            target=generate_avatar_worker,
-            args=[generation_job_id, job_id, prompt, num_images, quality_mode, seed]
-        )
-        thread.daemon = True
-        thread.start()
-        
-        return jsonify({
-            'job_id': generation_job_id,
-            'message': 'Avatar generation started',
-            'status': 'generating'
-        })
-        
-    except Exception as e:
-        logger.error(f"Failed to start generation: {e}")
-        return jsonify({'error': f'Generation failed: {str(e)}'}), 500
-
-def generate_avatar_worker(job_id: str, base_job_id: str, prompt: str, num_images: int, quality_mode: str, seed: int = None):
-    """Worker function to generate avatar using existing twin embedding"""
-    try:
-        update_job_status(job_id, "loading_models", 10, "Loading AI models...")
-        
-        # Initialize generator
-        generator = DigitalTwinGenerator()
-        generator.load_models()
-        
-        update_job_status(job_id, "generating", 50, "Generating avatar...")
-        
-        # Get the base job's output directory
-        base_output_dir = OUTPUT_DIR / base_job_id
-        
-        # Generate images
-        output_files = generator.generate_digital_twin(
-            selfies_folder=str(base_output_dir),  # Use existing processed selfies
-            output_path=str(OUTPUT_DIR / job_id),
-            prompt_style="custom",
-            num_images=num_images,
-            seed=seed
-        )
-        
-        # Update job with results
-        result = {
-            'output_files': output_files,
-            'prompt': prompt,
-            'num_images': num_images,
-            'quality_mode': quality_mode
-        }
-        
-        update_job_status(job_id, "completed", 100, "Generation completed", result)
-        
-        # Cleanup
-        generator.cleanup()
-        
-    except Exception as e:
-        logger.error(f"Generation failed for job {job_id}: {e}")
-        update_job_status(job_id, "failed", 0, f"Generation failed: {str(e)}")
-        cleanup_job_files(job_id)
+@app.route('/fashion-quality-modes')
+def get_fashion_quality_modes():
+    """Get available fashion quality modes"""
+    return jsonify({'modes': FASHION_QUALITY_MODES})
 
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
     return jsonify({
-        'status': 'ok', 
+        'status': 'ok',
         'timestamp': time.time(),
-        'quality_mode': QUALITY_MODE,
-        'active_jobs': len([j for j in jobs.values() if j['status'] in ['uploaded', 'loading_models', 'validating_selfies', 'generating']])
+        'active_jobs': len([j for j in jobs.values() if j.get('status') in ['validated', 'loading_models', 'generating']]),
+        'workflow_steps': FASHION_WORKFLOW_STEPS
     })
 
 @app.route('/system-status')
 def get_system_status():
     """Get system resource status"""
     try:
-        system_status = resource_manager.get_system_status()
-        resource_limits = resource_manager.check_resource_limits()
+        import psutil
+        
+        # Get system info
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # Get GPU info if available
+        gpu_info = {}
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_info = {
+                    'available': True,
+                    'device_count': torch.cuda.device_count(),
+                    'current_device': torch.cuda.current_device(),
+                    'device_name': torch.cuda.get_device_name(0),
+                    'memory_allocated': torch.cuda.memory_allocated(0) / 1024**3,  # GB
+                    'memory_reserved': torch.cuda.memory_reserved(0) / 1024**3,  # GB
+                }
+        except:
+            gpu_info = {'available': False}
         
         return jsonify({
-            'system_status': system_status,
-            'resource_limits': resource_limits,
-            'active_jobs': len(jobs),
-            'quality_mode': QUALITY_MODE
+            'system': {
+                'cpu_percent': cpu_percent,
+                'memory_percent': memory.percent,
+                'memory_available_gb': memory.available / 1024**3,
+                'disk_percent': disk.percent,
+                'disk_free_gb': disk.free / 1024**3
+            },
+            'gpu': gpu_info,
+            'jobs': {
+                'total': len(jobs),
+                'active': len([j for j in jobs.values() if j.get('status') in ['validated', 'loading_models', 'generating']]),
+                'completed': len([j for j in jobs.values() if j.get('status') == 'completed']),
+                'failed': len([j for j in jobs.values() if j.get('status') == 'failed'])
+            }
         })
+        
     except Exception as e:
         logger.error(f"Failed to get system status: {e}")
-        return jsonify({'error': 'Failed to get system status'}), 500
+        return jsonify({'error': f'Failed to get system status: {str(e)}'}), 500
 
 @app.route('/cleanup', methods=['POST'])
 def trigger_cleanup():
     """Trigger manual cleanup"""
     try:
-        # Clean up old jobs
-        resource_manager.cleanup_all_jobs(max_age_hours=1)
+        # Cleanup old jobs
+        current_time = time.time()
+        with job_lock:
+            old_jobs = [job_id for job_id, job in jobs.items() 
+                       if current_time - job.get('created_at', 0) > 3600]  # 1 hour
         
-        # Clean up temp files
-        resource_manager.cleanup_temp_files()
+        for job_id in old_jobs:
+            cleanup_job_files(job_id)
+            del jobs[job_id]
         
-        # Clean up GPU memory
-        resource_manager.cleanup_gpu_memory()
+        # Trigger resource manager cleanup
+        resource_manager.cleanup_old_jobs()
         
         return jsonify({
-            'message': 'Cleanup completed successfully',
-            'timestamp': time.time()
+            'message': f'Cleanup completed. Removed {len(old_jobs)} old jobs.',
+            'removed_jobs': len(old_jobs)
         })
+        
     except Exception as e:
         logger.error(f"Cleanup failed: {e}")
-        return jsonify({'error': 'Cleanup failed'}), 500
+        return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
+
+# Register shutdown handlers
+import atexit
+atexit.register(resource_manager.shutdown)
 
 if __name__ == '__main__':
-    # Create necessary directories
-    SELFIES_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Register shutdown handler
-    import atexit
-    atexit.register(resource_manager.shutdown)
-    atexit.register(image_validator.cleanup)
-    
-    # Start Flask app
+    logger.info("Starting Fashion Digital Twin Generator Flask app...")
     app.run(
-        host=WEB_CONFIG["host"],
-        port=WEB_CONFIG["port"],
-        debug=WEB_CONFIG["debug"]
+        host='0.0.0.0',
+        port=5000,
+        debug=False,
+        threaded=True
     ) 

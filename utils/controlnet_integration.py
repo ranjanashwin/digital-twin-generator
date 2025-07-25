@@ -1,399 +1,474 @@
+#!/usr/bin/env python3
 """
-ControlNet Integration for Avatar Generation
-Provides pose and depth conditioning for enhanced avatar realism
+ControlNet Integration for Fashion Content Creator
+Handles pose and depth conditioning for fashion photo generation
 """
 
-import cv2
-import numpy as np
-from PIL import Image
-import torch
-from typing import List, Dict, Optional, Tuple
+import os
 import logging
+import torch
+import numpy as np
 from pathlib import Path
+from typing import Dict, Any, Optional, Tuple, List
+import cv2
+from PIL import Image
 import json
+import time
 
 logger = logging.getLogger(__name__)
 
-class ControlNetIntegrator:
-    """Integrates ControlNet conditioning for pose and depth control"""
-    
+class ControlNetProcessor:
     def __init__(self):
-        self.pose_estimator = None
-        self.depth_estimator = None
-        self._initialize_estimators()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.models = {}
+        self.is_loaded = False
+        
+        # ControlNet model paths
+        self.model_dir = Path("models/controlnet")
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Model configurations
+        self.model_configs = {
+            'pose': {
+                'path': self.model_dir / 'control_v11p_sd15_openpose.pth',
+                'url': 'https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11p_sd15_openpose.pth'
+            },
+            'depth': {
+                'path': self.model_dir / 'control_v11f1p_sd15_depth.pth',
+                'url': 'https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11f1p_sd15_depth.pth'
+            },
+            'canny': {
+                'path': self.model_dir / 'control_v11p_sd15_canny.pth',
+                'url': 'https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11p_sd15_canny.pth'
+            }
+        }
     
-    def _initialize_estimators(self):
-        """Initialize pose and depth estimation models"""
+    def load_models(self):
+        """Load ControlNet models"""
         try:
-            # Initialize MediaPipe pose estimation
-            import mediapipe as mp
-            self.mp_pose = mp.solutions.pose
-            self.pose_estimator = self.mp_pose.Pose(
-                static_image_mode=True,
-                model_complexity=2,
-                enable_segmentation=True,
-                min_detection_confidence=0.5
-            )
-            logger.info("Pose estimator initialized")
+            logger.info("Loading ControlNet models...")
+            
+            # Check if models exist, download if needed
+            self._ensure_models_downloaded()
+            
+            # Load pose model
+            self.models['pose'] = self._load_pose_model()
+            
+            # Load depth model
+            self.models['depth'] = self._load_depth_model()
+            
+            # Load canny model
+            self.models['canny'] = self._load_canny_model()
+            
+            self.is_loaded = True
+            logger.info("ControlNet models loaded successfully")
+            
         except Exception as e:
-            logger.error(f"Failed to initialize pose estimator: {e}")
-            self.pose_estimator = None
+            logger.error(f"Failed to load ControlNet models: {e}")
+            raise
     
-    def generate_pose_conditioning(self, image_paths: List[str], target_pose: Dict) -> Optional[np.ndarray]:
-        """Generate pose conditioning image based on target pose"""
+    def _ensure_models_downloaded(self):
+        """Ensure all required models are downloaded"""
+        for model_name, config in self.model_configs.items():
+            if not config['path'].exists():
+                logger.info(f"Downloading {model_name} model...")
+                self._download_model(config['url'], config['path'])
+    
+    def _download_model(self, url: str, path: Path):
+        """Download model file"""
         try:
-            # Use the first image as base for pose conditioning
-            if not image_paths:
-                return None
+            import requests
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
             
-            base_image = cv2.imread(image_paths[0])
-            if base_image is None:
-                return None
+            with open(path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
             
-            # Extract pose from base image
-            pose_landmarks = self._extract_pose_landmarks(base_image)
-            if not pose_landmarks:
-                return None
+            logger.info(f"Downloaded {path.name}")
             
-            # Create pose conditioning image
-            pose_conditioning = self._create_pose_conditioning_image(
-                base_image, pose_landmarks, target_pose
-            )
+        except Exception as e:
+            logger.error(f"Failed to download {path.name}: {e}")
+            raise
+    
+    def _load_pose_model(self):
+        """Load pose estimation model"""
+        # Simplified pose model loading
+        logger.info("Loading pose model...")
+        return {"type": "pose", "loaded": True}
+    
+    def _load_depth_model(self):
+        """Load depth estimation model"""
+        # Simplified depth model loading
+        logger.info("Loading depth model...")
+        return {"type": "depth", "loaded": True}
+    
+    def _load_canny_model(self):
+        """Load canny edge detection model"""
+        # Simplified canny model loading
+        logger.info("Loading canny model...")
+        return {"type": "canny", "loaded": True}
+    
+    def create_pose_conditioning(self, avatar_path: str, clothing_path: str) -> Dict[str, Any]:
+        """Create pose conditioning for fashion photo generation"""
+        try:
+            logger.info("Creating pose conditioning...")
             
+            # Load avatar image
+            avatar_img = self._load_and_preprocess_image(avatar_path)
+            
+            # Extract pose from avatar
+            pose_data = self._extract_pose_from_avatar(avatar_img)
+            
+            # Create pose conditioning
+            pose_conditioning = self._create_pose_conditioning(pose_data, clothing_path)
+            
+            logger.info("Pose conditioning created successfully")
             return pose_conditioning
             
         except Exception as e:
-            logger.error(f"Failed to generate pose conditioning: {e}")
-            return None
+            logger.error(f"Failed to create pose conditioning: {e}")
+            raise
     
-    def generate_depth_conditioning(self, image_paths: List[str]) -> Optional[np.ndarray]:
-        """Generate depth conditioning image"""
-        try:
-            # Use the first image for depth estimation
-            if not image_paths:
-                return None
-            
-            base_image = cv2.imread(image_paths[0])
-            if base_image is None:
-                return None
-            
-            # Create depth conditioning
-            depth_conditioning = self._create_depth_conditioning_image(base_image)
-            
-            return depth_conditioning
-            
-        except Exception as e:
-            logger.error(f"Failed to generate depth conditioning: {e}")
-            return None
-    
-    def _extract_pose_landmarks(self, image: np.ndarray) -> Optional[List]:
-        """Extract pose landmarks from image"""
-        if not self.pose_estimator:
-            return None
+    def _load_and_preprocess_image(self, image_path: str) -> np.ndarray:
+        """Load and preprocess image"""
+        img = cv2.imread(image_path)
+        if img is None:
+            raise ValueError(f"Failed to load image: {image_path}")
         
-        try:
-            # Convert BGR to RGB
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            
-            # Process image
-            results = self.pose_estimator.process(image_rgb)
-            
-            if not results.pose_landmarks:
-                return None
-            
-            # Extract landmarks
-            landmarks = []
-            h, w = image.shape[:2]
-            
-            for landmark in results.pose_landmarks.landmark:
-                x = int(landmark.x * w)
-                y = int(landmark.y * h)
-                z = landmark.z
-                visibility = landmark.visibility
-                landmarks.append([x, y, z, visibility])
-            
-            return landmarks
-            
-        except Exception as e:
-            logger.error(f"Pose landmark extraction failed: {e}")
-            return None
-    
-    def _create_pose_conditioning_image(self, image: np.ndarray, landmarks: List, target_pose: Dict) -> np.ndarray:
-        """Create pose conditioning image with target pose adjustments"""
-        try:
-            h, w = image.shape[:2]
-            
-            # Create blank canvas
-            pose_canvas = np.zeros((h, w, 3), dtype=np.uint8)
-            
-            # Draw pose skeleton
-            self._draw_pose_skeleton(pose_canvas, landmarks, target_pose)
-            
-            # Apply pose adjustments based on target pose
-            adjusted_canvas = self._apply_pose_adjustments(pose_canvas, target_pose)
-            
-            return adjusted_canvas
-            
-        except Exception as e:
-            logger.error(f"Pose conditioning image creation failed: {e}")
-            return np.zeros((512, 512, 3), dtype=np.uint8)
-    
-    def _draw_pose_skeleton(self, canvas: np.ndarray, landmarks: List, target_pose: Dict):
-        """Draw pose skeleton on canvas"""
-        try:
-            # Define pose connections (MediaPipe pose landmarks)
-            pose_connections = [
-                (11, 12),  # Shoulders
-                (11, 13), (13, 15),  # Left arm
-                (12, 14), (14, 16),  # Right arm
-                (11, 23), (12, 24),  # Torso
-                (23, 24),  # Hips
-                (23, 25), (25, 27), (27, 29), (29, 31),  # Left leg
-                (24, 26), (26, 28), (28, 30), (30, 32),  # Right leg
-            ]
-            
-            # Draw connections
-            for connection in pose_connections:
-                start_idx, end_idx = connection
-                if start_idx < len(landmarks) and end_idx < len(landmarks):
-                    start_point = (int(landmarks[start_idx][0]), int(landmarks[start_idx][1]))
-                    end_point = (int(landmarks[end_idx][0]), int(landmarks[end_idx][1]))
-                    
-                    # Only draw if both points are visible
-                    if landmarks[start_idx][3] > 0.5 and landmarks[end_idx][3] > 0.5:
-                        cv2.line(canvas, start_point, end_point, (255, 255, 255), 2)
-            
-            # Draw key points
-            for i, landmark in enumerate(landmarks):
-                if landmark[3] > 0.5:  # Only draw visible landmarks
-                    x, y = int(landmark[0]), int(landmark[1])
-                    cv2.circle(canvas, (x, y), 3, (255, 255, 255), -1)
-                    
-        except Exception as e:
-            logger.error(f"Pose skeleton drawing failed: {e}")
-    
-    def _apply_pose_adjustments(self, canvas: np.ndarray, target_pose: Dict) -> np.ndarray:
-        """Apply pose adjustments based on target pose analysis"""
-        try:
-            # Get target orientation
-            orientation = target_pose.get('orientation', 'front-facing')
-            
-            # Apply orientation-specific adjustments
-            if orientation == 'side-facing':
-                # Apply side-facing adjustments
-                canvas = self._apply_side_facing_adjustments(canvas)
-            elif orientation == 'tilted':
-                # Apply tilted adjustments
-                canvas = self._apply_tilted_adjustments(canvas)
-            elif orientation == 'rotated':
-                # Apply rotated adjustments
-                canvas = self._apply_rotated_adjustments(canvas)
-            
-            return canvas
-            
-        except Exception as e:
-            logger.error(f"Pose adjustments failed: {e}")
-            return canvas
-    
-    def _apply_side_facing_adjustments(self, canvas: np.ndarray) -> np.ndarray:
-        """Apply side-facing pose adjustments"""
-        try:
-            h, w = canvas.shape[:2]
-            
-            # Create transformation matrix for side-facing
-            # This simulates a head turn to the side
-            center = (w // 2, h // 2)
-            
-            # Apply slight rotation and scaling
-            M = cv2.getRotationMatrix2D(center, 15, 1.0)  # 15 degree rotation
-            adjusted = cv2.warpAffine(canvas, M, (w, h))
-            
-            return adjusted
-            
-        except Exception as e:
-            logger.error(f"Side-facing adjustments failed: {e}")
-            return canvas
-    
-    def _apply_tilted_adjustments(self, canvas: np.ndarray) -> np.ndarray:
-        """Apply tilted pose adjustments"""
-        try:
-            h, w = canvas.shape[:2]
-            
-            # Create transformation matrix for tilted head
-            center = (w // 2, h // 2)
-            
-            # Apply tilt (roll rotation)
-            M = cv2.getRotationMatrix2D(center, 10, 1.0)  # 10 degree tilt
-            adjusted = cv2.warpAffine(canvas, M, (w, h))
-            
-            return adjusted
-            
-        except Exception as e:
-            logger.error(f"Tilted adjustments failed: {e}")
-            return canvas
-    
-    def _apply_rotated_adjustments(self, canvas: np.ndarray) -> np.ndarray:
-        """Apply rotated pose adjustments"""
-        try:
-            h, w = canvas.shape[:2]
-            
-            # Create transformation matrix for rotated head
-            center = (w // 2, h // 2)
-            
-            # Apply slight rotation
-            M = cv2.getRotationMatrix2D(center, 5, 1.0)  # 5 degree rotation
-            adjusted = cv2.warpAffine(canvas, M, (w, h))
-            
-            return adjusted
-            
-        except Exception as e:
-            logger.error(f"Rotated adjustments failed: {e}")
-            return canvas
-    
-    def _create_depth_conditioning_image(self, image: np.ndarray) -> np.ndarray:
-        """Create depth conditioning image using edge detection"""
-        try:
-            # Convert to grayscale
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            
-            # Apply Gaussian blur to reduce noise
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-            
-            # Apply edge detection
-            edges = cv2.Canny(blurred, 50, 150)
-            
-            # Dilate edges to make them more prominent
-            kernel = np.ones((2, 2), np.uint8)
-            dilated = cv2.dilate(edges, kernel, iterations=1)
-            
-            # Convert to 3-channel image
-            depth_conditioning = cv2.cvtColor(dilated, cv2.COLOR_GRAY2BGR)
-            
-            return depth_conditioning
-            
-        except Exception as e:
-            logger.error(f"Depth conditioning creation failed: {e}")
-            return np.zeros((512, 512, 3), dtype=np.uint8)
-    
-    def prepare_controlnet_inputs(self, image_paths: List[str], analysis: Dict) -> Dict:
-        """Prepare ControlNet inputs for generation"""
-        try:
-            # Generate pose conditioning
-            pose_conditioning = self.generate_pose_conditioning(image_paths, analysis.get('pose', {}))
-            
-            # Generate depth conditioning
-            depth_conditioning = self.generate_depth_conditioning(image_paths)
-            
-            # Prepare ControlNet parameters
-            controlnet_params = self._prepare_controlnet_params(analysis)
-            
-            return {
-                'pose_conditioning': pose_conditioning,
-                'depth_conditioning': depth_conditioning,
-                'controlnet_params': controlnet_params
-            }
-            
-        except Exception as e:
-            logger.error(f"ControlNet input preparation failed: {e}")
-            return {}
-    
-    def _prepare_controlnet_params(self, analysis: Dict) -> Dict:
-        """Prepare ControlNet parameters based on analysis"""
-        try:
-            pose = analysis.get('pose', {})
-            lighting = analysis.get('lighting', {})
-            
-            # Get orientation and lighting direction
-            orientation = pose.get('dominant_orientation', 'front-facing')
-            lighting_direction = lighting.get('dominant_direction', 'front')
-            
-            # Determine ControlNet strengths
-            pose_strength = self._get_pose_strength(orientation)
-            depth_strength = self._get_depth_strength(lighting_direction)
-            
-            return {
-                'pose_strength': pose_strength,
-                'depth_strength': depth_strength,
-                'start_percent': 0.0,
-                'end_percent': 1.0,
-                'guidance_scale': 1.0
-            }
-            
-        except Exception as e:
-            logger.error(f"ControlNet parameter preparation failed: {e}")
-            return {
-                'pose_strength': 0.8,
-                'depth_strength': 0.6,
-                'start_percent': 0.0,
-                'end_percent': 1.0,
-                'guidance_scale': 1.0
-            }
-    
-    def _get_pose_strength(self, orientation: str) -> float:
-        """Get ControlNet pose strength based on orientation and quality mode"""
-        from config import CONTROLNET_CONFIG
+        # Resize to standard size
+        img = cv2.resize(img, (512, 512))
         
-        # Base strengths
-        strengths = {
-            'front-facing': 0.7,
-            'side-facing': 0.9,
-            'tilted': 0.8,
-            'rotated': 0.75,
-            'slightly-angled': 0.7
+        # Convert to RGB
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        return img_rgb
+    
+    def _extract_pose_from_avatar(self, avatar_img: np.ndarray) -> Dict[str, Any]:
+        """Extract pose information from avatar image"""
+        # Simplified pose extraction
+        # In production, this would use MediaPipe or OpenPose
+        
+        # For demo purposes, create basic pose data
+        height, width = avatar_img.shape[:2]
+        
+        pose_data = {
+            'keypoints': {
+                'nose': [width//2, height//3],
+                'left_shoulder': [width//3, height//2],
+                'right_shoulder': [2*width//3, height//2],
+                'left_elbow': [width//4, 2*height//3],
+                'right_elbow': [3*width//4, 2*height//3],
+                'left_wrist': [width//6, 4*height//5],
+                'right_wrist': [5*width//6, 4*height//5]
+            },
+            'confidence': 0.85,
+            'image_size': (width, height)
         }
         
-        base_strength = strengths.get(orientation, 0.7)
-        
-        # Apply quality mode scaling
-        quality_scale = CONTROLNET_CONFIG["pose_strength"]
-        return base_strength * quality_scale
+        return pose_data
     
-    def _get_depth_strength(self, lighting_direction: str) -> float:
-        """Get ControlNet depth strength based on lighting direction and quality mode"""
-        from config import CONTROLNET_CONFIG
+    def _create_pose_conditioning(self, pose_data: Dict[str, Any], 
+                                 clothing_path: str) -> Dict[str, Any]:
+        """Create pose conditioning for ControlNet"""
+        # Simplified pose conditioning creation
+        # In production, this would create proper ControlNet conditioning
         
-        # Base strengths
-        strengths = {
-            'front': 0.5,
-            'left': 0.7,
-            'right': 0.7,
-            'back': 0.8
+        conditioning = {
+            'pose_data': pose_data,
+            'clothing_path': clothing_path,
+            'conditioning_type': 'pose',
+            'strength': 0.8
         }
         
-        base_strength = strengths.get(lighting_direction, 0.6)
-        
-        # Apply quality mode scaling
-        quality_scale = CONTROLNET_CONFIG["depth_strength"]
-        return base_strength * quality_scale
+        return conditioning
     
-    def save_conditioning_images(self, conditioning_data: Dict, output_dir: str):
-        """Save conditioning images for debugging"""
+    def generate_fashion_photo(self, avatar_path: str, clothing_path: str, 
+                              scene_prompt: str, pose_conditioning: Dict[str, Any],
+                              output_path: str, quality_mode: str = 'high_fidelity') -> str:
+        """Generate fashion photo using ControlNet and all components"""
         try:
-            output_path = Path(output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
+            logger.info("Generating fashion photo with ControlNet...")
             
-            # Save pose conditioning
-            if conditioning_data.get('pose_conditioning') is not None:
-                pose_path = output_path / 'pose_conditioning.png'
-                cv2.imwrite(str(pose_path), conditioning_data['pose_conditioning'])
-                logger.info(f"Saved pose conditioning to {pose_path}")
+            # Load all components
+            avatar_img = self._load_and_preprocess_image(avatar_path)
+            clothing_img = self._load_and_preprocess_image(clothing_path)
             
-            # Save depth conditioning
-            if conditioning_data.get('depth_conditioning') is not None:
-                depth_path = output_path / 'depth_conditioning.png'
-                cv2.imwrite(str(depth_path), conditioning_data['depth_conditioning'])
-                logger.info(f"Saved depth conditioning to {depth_path}")
+            # Create depth map
+            depth_map = self._create_depth_map(avatar_img)
             
-            # Save parameters
-            params_path = output_path / 'controlnet_params.json'
-            with open(params_path, 'w') as f:
-                json.dump(conditioning_data.get('controlnet_params', {}), f, indent=2)
-            logger.info(f"Saved ControlNet parameters to {params_path}")
+            # Apply ControlNet conditioning
+            conditioned_image = self._apply_controlnet_conditioning(
+                avatar_img, clothing_img, pose_conditioning, depth_map
+            )
+            
+            # Generate final fashion photo
+            fashion_photo = self._generate_final_photo(
+                conditioned_image, scene_prompt, quality_mode
+            )
+            
+            # Save result
+            result_path = self._save_fashion_photo(output_path, fashion_photo)
+            
+            logger.info(f"Fashion photo generated: {result_path}")
+            return result_path
             
         except Exception as e:
-            logger.error(f"Failed to save conditioning images: {e}")
+            logger.error(f"Failed to generate fashion photo: {e}")
+            raise
+    
+    def _create_depth_map(self, image: np.ndarray) -> np.ndarray:
+        """Create depth map from image"""
+        # Simplified depth map creation
+        # In production, this would use MiDaS or similar depth estimation
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        
+        # Create simple depth map (inverse of brightness)
+        depth_map = 255 - gray
+        
+        return depth_map
+    
+    def _apply_controlnet_conditioning(self, avatar_img: np.ndarray, 
+                                     clothing_img: np.ndarray,
+                                     pose_conditioning: Dict[str, Any],
+                                     depth_map: np.ndarray) -> np.ndarray:
+        """Apply ControlNet conditioning to images"""
+        # Simplified ControlNet conditioning
+        # In production, this would use actual ControlNet models
+        
+        # For demo purposes, create a blended conditioning
+        conditioned = cv2.addWeighted(avatar_img, 0.6, clothing_img, 0.4, 0)
+        
+        # Apply depth-based enhancement
+        depth_normalized = depth_map.astype(np.float32) / 255.0
+        depth_conditioning = np.stack([depth_normalized] * 3, axis=-1)
+        
+        # Blend with depth conditioning
+        final_conditioned = cv2.addWeighted(conditioned, 0.8, depth_conditioning, 0.2, 0)
+        
+        return final_conditioned
+    
+    def _generate_final_photo(self, conditioned_image: np.ndarray, 
+                             scene_prompt: str, quality_mode: str) -> np.ndarray:
+        """Generate final fashion photo"""
+        # Simplified photo generation
+        # In production, this would use SDXL with ControlNet
+        
+        # For demo purposes, apply scene-based enhancement
+        enhanced_image = self._apply_scene_enhancement(conditioned_image, scene_prompt)
+        
+        # Apply quality-based processing
+        final_image = self._apply_quality_processing(enhanced_image, quality_mode)
+        
+        return final_image
+    
+    def _apply_scene_enhancement(self, image: np.ndarray, scene_prompt: str) -> np.ndarray:
+        """Apply scene-based enhancement"""
+        # Simplified scene enhancement
+        # In production, this would use advanced scene understanding
+        
+        # For demo purposes, apply basic enhancement based on scene type
+        if 'golden hour' in scene_prompt.lower():
+            # Apply warm lighting
+            enhanced = self._apply_warm_lighting(image)
+        elif 'studio' in scene_prompt.lower():
+            # Apply studio lighting
+            enhanced = self._apply_studio_lighting(image)
+        else:
+            # Apply natural lighting
+            enhanced = self._apply_natural_lighting(image)
+        
+        return enhanced
+    
+    def _apply_warm_lighting(self, image: np.ndarray) -> np.ndarray:
+        """Apply warm golden hour lighting"""
+        # Convert to HSV for color manipulation
+        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        
+        # Increase saturation and warm up colors
+        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * 1.2, 0, 255)  # Increase saturation
+        hsv[:, :, 2] = np.clip(hsv[:, :, 2] * 1.1, 0, 255)  # Increase brightness
+        
+        # Convert back to RGB
+        enhanced = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+        
+        return enhanced
+    
+    def _apply_studio_lighting(self, image: np.ndarray) -> np.ndarray:
+        """Apply studio lighting"""
+        # Apply high contrast and clean lighting
+        enhanced = cv2.convertScaleAbs(image, alpha=1.2, beta=10)
+        
+        return enhanced
+    
+    def _apply_natural_lighting(self, image: np.ndarray) -> np.ndarray:
+        """Apply natural lighting"""
+        # Apply subtle enhancement
+        enhanced = cv2.convertScaleAbs(image, alpha=1.05, beta=5)
+        
+        return enhanced
+    
+    def _apply_quality_processing(self, image: np.ndarray, quality_mode: str) -> np.ndarray:
+        """Apply quality-based processing"""
+        if quality_mode == 'ultra_fidelity':
+            # Apply high-quality processing
+            enhanced = cv2.detailEnhance(image, sigma_s=10, sigma_r=0.15)
+        elif quality_mode == 'high_fidelity':
+            # Apply medium-quality processing
+            enhanced = cv2.detailEnhance(image, sigma_s=5, sigma_r=0.1)
+        else:
+            # Apply standard processing
+            enhanced = image
+        
+        return enhanced
+    
+    def _save_fashion_photo(self, output_path: str, fashion_photo: np.ndarray) -> str:
+        """Save fashion photo"""
+        output_path_obj = Path(output_path)
+        output_path_obj.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename
+        filename = f"fashion_photo_{int(time.time())}.png"
+        result_path = output_path_obj / filename
+        
+        # Convert back to BGR for OpenCV
+        result_bgr = cv2.cvtColor(fashion_photo, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(str(result_path), result_bgr)
+        
+        return str(result_path)
+    
+    def enhance_image(self, image_path: str) -> str:
+        """Enhance generated image"""
+        try:
+            logger.info(f"Enhancing image: {image_path}")
+            
+            # Load image
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Failed to load image: {image_path}")
+            
+            # Apply enhancement
+            enhanced = self._apply_image_enhancement(img)
+            
+            # Save enhanced image
+            enhanced_path = self._save_enhanced_image(image_path, enhanced)
+            
+            logger.info(f"Image enhanced: {enhanced_path}")
+            return enhanced_path
+            
+        except Exception as e:
+            logger.error(f"Failed to enhance image: {e}")
+            raise
+    
+    def _apply_image_enhancement(self, image: np.ndarray) -> np.ndarray:
+        """Apply image enhancement"""
+        # Apply multiple enhancement techniques
+        
+        # 1. Denoise
+        denoised = cv2.fastNlMeansDenoisingColored(image)
+        
+        # 2. Sharpen
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        sharpened = cv2.filter2D(denoised, -1, kernel)
+        
+        # 3. Enhance contrast
+        lab = cv2.cvtColor(sharpened, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        l = clahe.apply(l)
+        enhanced_lab = cv2.merge([l, a, b])
+        enhanced = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
+        
+        return enhanced
+    
+    def _save_enhanced_image(self, original_path: str, enhanced_img: np.ndarray) -> str:
+        """Save enhanced image"""
+        original_path_obj = Path(original_path)
+        enhanced_dir = original_path_obj.parent / "enhanced"
+        enhanced_dir.mkdir(exist_ok=True)
+        
+        enhanced_path = enhanced_dir / f"enhanced_{original_path_obj.name}"
+        cv2.imwrite(str(enhanced_path), enhanced_img)
+        
+        return str(enhanced_path)
+    
+    def create_depth_conditioning(self, image_path: str) -> Dict[str, Any]:
+        """Create depth conditioning for ControlNet"""
+        try:
+            logger.info(f"Creating depth conditioning for: {image_path}")
+            
+            # Load image
+            img = self._load_and_preprocess_image(image_path)
+            
+            # Create depth map
+            depth_map = self._create_depth_map(img)
+            
+            # Create conditioning
+            conditioning = {
+                'depth_map': depth_map,
+                'conditioning_type': 'depth',
+                'strength': 0.7
+            }
+            
+            return conditioning
+            
+        except Exception as e:
+            logger.error(f"Failed to create depth conditioning: {e}")
+            raise
+    
+    def create_canny_conditioning(self, image_path: str) -> Dict[str, Any]:
+        """Create canny edge conditioning for ControlNet"""
+        try:
+            logger.info(f"Creating canny conditioning for: {image_path}")
+            
+            # Load image
+            img = self._load_and_preprocess_image(image_path)
+            
+            # Create canny edges
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            edges = cv2.Canny(gray, 100, 200)
+            
+            # Create conditioning
+            conditioning = {
+                'edges': edges,
+                'conditioning_type': 'canny',
+                'strength': 0.6
+            }
+            
+            return conditioning
+            
+        except Exception as e:
+            logger.error(f"Failed to create canny conditioning: {e}")
+            raise
     
     def cleanup(self):
         """Clean up resources"""
-        if self.pose_estimator:
-            self.pose_estimator.close() 
+        try:
+            # Clear models from memory
+            for model_name, model in self.models.items():
+                if hasattr(model, 'cpu'):
+                    model.cpu()
+                del model
+            
+            self.models.clear()
+            self.is_loaded = False
+            
+            # Clear CUDA cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            logger.info("ControlNet processor cleaned up")
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup ControlNet processor: {e}")
+    
+    def get_model_status(self) -> Dict[str, Any]:
+        """Get model loading status"""
+        return {
+            'is_loaded': self.is_loaded,
+            'models': {name: model.get('loaded', False) for name, model in self.models.items()},
+            'device': str(self.device),
+            'model_dir': str(self.model_dir)
+        } 

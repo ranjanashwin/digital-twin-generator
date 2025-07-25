@@ -1,4 +1,4 @@
-# Core AI/ML Dependencies (Production Versions)
+# Core AI/ML Dependencies
 torch>=2.0.0
 torchvision>=0.15.0
 diffusers==0.25.0
@@ -34,5 +34,21 @@ xformers>=0.0.20
 datasets>=2.10.0
 psutil>=5.9.0
 
-# Optional: CodeFormer (use compatible version)
-codeformer==0.0.11 
+# Fashion-specific Dependencies
+codeformer==0.0.11
+
+# ControlNet & VITON-HD Dependencies
+controlnet-aux>=0.3.0
+opencv-contrib-python>=4.8.0
+scikit-image>=0.20.0
+
+# Additional AI/ML Libraries
+einops>=0.6.0
+omegaconf>=2.3.0
+pytorch-lightning>=2.0.0
+
+# Development & Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0 
